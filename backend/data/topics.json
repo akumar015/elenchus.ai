@@ -1,0 +1,58 @@
+[
+  {
+    "id": "survivorship-bias",
+    "title": "Survivorship Bias",
+    "category": "Cognitive Science",
+    "summary": "We systematically overestimate success rates because we only study survivors — the failures are invisible. WWII bomber analysis revealed this when engineers wanted to armor the bullet holes they could see, not the ones that brought planes down.",
+    "opening_trap": "If successful people all share certain habits, does that mean adopting those habits will make you successful?"
+  },
+  {
+    "id": "hedonic-treadmill",
+    "title": "Hedonic Treadmill",
+    "category": "Behavioral Economics",
+    "summary": "Humans rapidly adapt to positive or negative life changes and return to a stable baseline of happiness. Winning the lottery and becoming paralyzed produce surprisingly similar long-term happiness levels.",
+    "opening_trap": "If nothing you achieve can permanently raise your happiness baseline, is the pursuit of goals fundamentally irrational?"
+  },
+  {
+    "id": "dunning-kruger",
+    "title": "Dunning-Kruger Effect",
+    "category": "Psychology",
+    "summary": "People with limited knowledge in a domain massively overestimate their competence, while genuine experts tend to underestimate theirs. Incompetence prevents accurate self-assessment.",
+    "opening_trap": "If the most confident person in the room is statistically more likely to be the least informed, why do we keep electing confident leaders?"
+  },
+  {
+    "id": "tragedy-of-the-commons",
+    "title": "Tragedy of the Commons",
+    "category": "Economics",
+    "summary": "Shared resources are inevitably over-exploited when individuals act in rational self-interest. Each actor's individually rational decision leads to a collectively irrational outcome.",
+    "opening_trap": "If every fisherman fishing sustainably depends on every other fisherman doing the same, what actually stops the ocean from being emptied?"
+  },
+  {
+    "id": "opportunity-cost",
+    "title": "Opportunity Cost",
+    "category": "Economics",
+    "summary": "Every choice you make implicitly rejects all other available choices. The real cost of any decision is the value of the best forgone alternative — not what you paid.",
+    "opening_trap": "You took this job over another that paid more. Does that mean you are, by definition, working for less than you're worth?"
+  },
+  {
+    "id": "overton-window",
+    "title": "Overton Window",
+    "category": "Political Science",
+    "summary": "At any given time, only a narrow band of policy ideas are considered politically acceptable. The window shifts not by politicians adopting fringe ideas, but by public discourse normalizing them first.",
+    "opening_trap": "If ideas that were radical 20 years ago are mainstream today, does that mean there are currently 'crazy' ideas that your grandchildren will consider obvious?"
+  },
+  {
+    "id": "hanlons-razor",
+    "title": "Hanlon's Razor",
+    "category": "Philosophy",
+    "summary": "Never attribute to malice that which is adequately explained by incompetence. Most institutional failures are coordination problems, not conspiracies.",
+    "opening_trap": "If we consistently explain bad outcomes as incompetence rather than intent, does that let genuinely malicious actors operate with perfect cover?"
+  },
+  {
+    "id": "goodharts-law",
+    "title": "Goodhart's Law",
+    "category": "Systems Thinking",
+    "summary": "When a measure becomes a target, it ceases to be a good measure. The metric that was tracking real value starts being optimized directly, hollowing out the underlying thing it was meant to represent.",
+    "opening_trap": "If a school is judged by its exam pass rate, and it starts teaching only to the exam — is it still a school?"
+  }
+]
