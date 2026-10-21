@@ -1,0 +1,19 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+.env  
+idea.md
+elenchus-build-plan.md
+gsd-template/
+test_input.wav
+test_output.wav
+test_audio_loop.py 
+gsd-template/
+phase-wise-implementation-plan.md
