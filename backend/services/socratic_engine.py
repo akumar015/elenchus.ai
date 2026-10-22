@@ -11,9 +11,9 @@ from google import genai
 from google.genai import types
 from google.genai.errors import ClientError
 from backend.config import settings
-
-
 MODEL = "gemini-3.5-flash-lite"
+
+_MAX_TURNS_PER_STAGE = 3  # safety valve: force advance after 3 turns in same stage
 
 
 # ---------------------------------------------------------------------------
@@ -56,8 +56,66 @@ class SparSession:
     cache_name: str | None = None
     # Always set by init_session_cache — used as fallback when prompt is too small to cache
     static_prompt: str = ""
+    stage_turns: int=0
+    consecutive_low_effort: int=0
 
 
+class EffortLevel(str, Enum):
+    LOW    = "LOW"    # monosyllabic, <8 words, or known dodge phrases
+    MEDIUM = "MEDIUM" # 8–25 words, basic statement
+    HIGH   = "HIGH"   # >25 words, or contains reasoning markers
+# Connective logic words that indicate structured thinking
+_REASONING_MARKERS = {
+    "because", "therefore", "however", "although", "but", "since",
+    "unless", "whereas", "despite", "evidence", "actually", "argue",
+    "reason", "think", "believe", "contrary", "premise", "assume",
+    "implies", "follows", "hence", "thus", "conversely",
+}
+# One-word dodges
+_MONOSYLLABIC_DODGES = {
+    "yes", "no", "maybe", "ok", "okay", "sure", "right", "wrong",
+    "idk", "dunno", "true", "false", "agreed", "disagree", "exactly",
+    "correct", "nope", "yep", "yeah", "nah",
+}
+def _assess_effort(user_input: str) -> EffortLevel:
+    cleaned = user_input.strip().lower()
+    words = cleaned.split()
+    word_count = len(words)
+    # Single word or known dodge
+    if word_count <= 2 or cleaned in _MONOSYLLABIC_DODGES:
+        return EffortLevel.LOW
+    has_reasoning = any(w in _REASONING_MARKERS for w in words)
+    if word_count > 25 or (word_count > 12 and has_reasoning):
+        return EffortLevel.HIGH
+    if word_count >= 8:
+        return EffortLevel.MEDIUM
+    return EffortLevel.LOW
+
+
+def _compute_next_stage(session: "SparSession", effort: EffortLevel) -> Stage:
+    """
+    Determine the next stage based on current stage and user effort.
+    - INTRO always advances (one-turn hook).
+    - WRAP is terminal.
+    - LOW effort: hold current stage to apply more pressure.
+    - MEDIUM / HIGH effort: advance normally.
+    - Safety valve: force advance after _MAX_TURNS_PER_STAGE turns in same stage.
+    """
+    current = session.stage
+
+    if current == Stage.INTRO:
+        return Stage.CHALLENGE  # always advance after the opening
+
+    if current == Stage.WRAP:
+        return Stage.WRAP  # terminal
+
+    if session.stage_turns >= _MAX_TURNS_PER_STAGE:
+        return STAGE_TRANSITIONS[current]  # force advance — never trap forever
+
+    if effort == EffortLevel.LOW:
+        return current  # hold — user hasn't earned the next stage
+
+    return STAGE_TRANSITIONS[current]  # MEDIUM or HIGH — advance
 # ---------------------------------------------------------------------------
 # Persona Prompts (static — cached when above 1024 tokens)
 # ---------------------------------------------------------------------------
@@ -163,34 +221,37 @@ async def delete_session_cache(session: SparSession) -> None:
 # Per-Turn Stage Injection
 # ---------------------------------------------------------------------------
 
-def _stage_hint(stage: Stage) -> str:
-    """
-    Injects the current stage as a lightweight prefix in the conversation.
-    This is the ONLY dynamic part — keeps the cached system prompt unchanged.
-    """
-    hints = {
+def _stage_hint(stage: Stage, effort: EffortLevel) -> str:
+    base = {
         Stage.INTRO:     "[STAGE: INTRO] Deliver the opening trap. One provocative thesis, then the trap question.",
-        Stage.CHALLENGE: "[STAGE: CHALLENGE] Attack their first response. Find the unexamined assumption.",
-        Stage.PUSHBACK:  "[STAGE: PUSHBACK] They're defending. Either concede a point if the argument is strong, or escalate harder.",
-        Stage.DEEPEN:    "[STAGE: DEEPEN] Introduce a real-world edge case that breaks their model.",
+        Stage.CHALLENGE: "[STAGE: CHALLENGE] Attack their response. Find the unexamined assumption.",
+        Stage.PUSHBACK:  "[STAGE: PUSHBACK] They're defending. Concede a point only if the argument is genuinely strong, otherwise escalate.",
+        Stage.DEEPEN:    "[STAGE: DEEPEN] Introduce a real-world edge case that collapses their model.",
         Stage.WRAP:      "[STAGE: WRAP] Name their strongest argument. Name their biggest blind spot. End with: 'Session complete.'",
     }
-    return hints[stage]
+
+    addendum = {
+        EffortLevel.LOW:    " WARNING: Their answer was too short or evasive. Call this out directly. Demand they take a clear position before the debate can move on. Do NOT introduce new material.",
+        EffortLevel.MEDIUM: "",  # no addendum — proceed normally
+        EffortLevel.HIGH:   " NOTE: They gave a strong, reasoned response. Acknowledge their best point in one clause, then immediately pivot to a harder unconsidered flank or edge case.",
+    }
+
+    return base[stage] + addendum[effort]
 
 
-def _build_conversation_history(session: SparSession, current_stage: Stage) -> list[types.Content]:
+def _build_conversation_history(session: SparSession, current_stage: Stage, effort: EffortLevel) -> list[types.Content]:
     """
     Build the conversation contents for this turn.
-    Prepends a stage-hint as a system-style user message so the model
-    knows which mode to operate in — without touching the cached system prompt.
+    Prepends a stage-hint (with effort context) as a system-style user message
+    so the model knows which mode to operate in — without touching the cached system prompt.
     """
     contents: list[types.Content] = []
 
-    # Stage hint as the first user message in the context
+    # Stage hint (with effort-aware addendum) as the first user message
     contents.append(
         types.Content(
             role="user",
-            parts=[types.Part(text=_stage_hint(current_stage))],
+            parts=[types.Part(text=_stage_hint(current_stage, effort))],
         )
     )
     # Acknowledge stage hint as model (keeps turn structure valid for the API)
@@ -233,6 +294,10 @@ async def get_next_turn(session: SparSession, user_input: str) -> tuple[str, boo
     Raises:
         RuntimeError: If init_session_cache() has not been called for this session.
     """
+
+    # classify user effort before building the prompt
+    effort=_assess_effort(user_input)
+
     if not session.static_prompt:
         raise RuntimeError(
             "Session not initialised. Call `init_session_cache(session)` first."
@@ -243,7 +308,7 @@ async def get_next_turn(session: SparSession, user_input: str) -> tuple[str, boo
     session.turn_count += 1
 
     current_stage = session.stage
-    contents = _build_conversation_history(session, current_stage)
+    contents = _build_conversation_history(session, current_stage, effort)
 
     if session.cache_name:
         # Fast path — cached system prompt, only pay ~25% per cached token
@@ -273,8 +338,17 @@ async def get_next_turn(session: SparSession, user_input: str) -> tuple[str, boo
     # Record AI turn
     session.history.append(Turn(role="AI", text=ai_text))
 
-    # Advance stage
-    session.stage = STAGE_TRANSITIONS[current_stage]
-    is_complete = "session complete" in ai_text.lower()
+    # Dynamic stage transition based on user effort
+    next_stage = _compute_next_stage(session, effort)
+    if next_stage == session.stage:
+        # Holding — user didn't earn advancement
+        session.stage_turns += 1
+        session.consecutive_low_effort += 1
+    else:
+        # Advancing — reset stage counters
+        session.stage = next_stage
+        session.stage_turns = 0
+        session.consecutive_low_effort = 0
 
+    is_complete = "session complete" in ai_text.lower()
     return ai_text, is_complete
