@@ -33,6 +33,13 @@ export interface TurnAudioResponse {
   audioBlob: Blob;
 }
 
+export interface ThoughtCard {
+  core_thesis: string;
+  user_stance: string;
+  blind_spots: string;
+  key_insight: string;
+}
+
 export interface EndSparResponse {
   session_id: string;
   topic_id: string;
@@ -43,4 +50,5 @@ export interface EndSparResponse {
     role: "AI" | "USER";
     text: string;
   }>;
+  thought_card?: ThoughtCard;  // present after Phase 4.2 backend
 }
