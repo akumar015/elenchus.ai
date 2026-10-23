@@ -1,0 +1,62 @@
+@import url("https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,200..800;1,6..72,200..800&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: #0c0c0e;
+  --foreground: #f3f3ee;
+  color-scheme: dark;
+}
+
+html {
+  background-color: #0c0c0e;
+  color: #f3f3ee;
+  -webkit-tap-highlight-color: transparent;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  min-height: 100vh;
+  min-height: 100dvh;
+  background-color: #0c0c0e;
+  color: #f3f3ee;
+  font-family: var(--font-geist-sans), system-ui, -apple-system, sans-serif;
+  overflow-x: hidden;
+}
+
+::selection {
+  background-color: rgba(217, 93, 57, 0.3);
+  color: #f3f3ee;
+}
+
+/* Custom quiet scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #0c0c0e;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #26262d;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #383842;
+}
+
+/* Focus visibility for accessibility (WCAG 2.1 AAA compliant) */
+:focus-visible {
+  outline: 2px solid #d95d39;
+  outline-offset: 2px;
+}
+
+/* Mobile active touch tap feedback */
+button:active {
+  transform: scale(0.98);
+}
