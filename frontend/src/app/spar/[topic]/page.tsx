@@ -12,6 +12,7 @@ import { DialecticStage, EndSparResponse } from "@/types/spar";
 import { VoiceOrb } from "@/components/spar/VoiceOrb";
 import { StageProgress } from "@/components/spar/StageProgress";
 import { TranscriptFeed } from "@/components/spar/TranscriptFeed";
+import { AtomicThoughtCard } from "@/components/spar/AtomicThoughtCard";
 import {
   ArrowLeft,
   Send,
@@ -426,49 +427,75 @@ export default function SparringArenaPage() {
         </section>
       </main>
 
-      {/* Session Completion / Ambient Scribe Modal */}
-      {sessionEndedSummary && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="max-w-md w-full rounded-2xl border border-elenchus-border bg-elenchus-surface-1 p-6 sm:p-8 space-y-6 shadow-2xl">
-            <div className="space-y-2">
-              <span className="font-mono text-xs uppercase tracking-widest text-elenchus-emerald">
-                Sparring Session Concluded
-              </span>
-              <h3 className="font-serif text-2xl text-elenchus-chalk font-bold">
-                Dialectic Duel Complete
-              </h3>
-              <p className="text-elenchus-stone text-xs leading-relaxed">
-                You defended your stance across {sessionEndedSummary.total_turns} turns,
-                reaching the <strong className="text-elenchus-chalk">{sessionEndedSummary.final_stage}</strong> stage.
-              </p>
-            </div>
+      {/* Session Completion / Atomic Thought Card Modal */}
+{sessionEndedSummary && (
+  <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
+    <div className="max-w-lg w-full rounded-2xl border border-elenchus-border bg-elenchus-surface-1 p-6 sm:p-8 space-y-6 shadow-2xl my-auto">
 
-            <div className="rounded-lg border border-elenchus-border bg-elenchus-ground p-4 space-y-2 font-mono text-xs">
-              <div className="flex justify-between text-elenchus-stone">
-                <span>Total Volleys:</span>
-                <span className="text-elenchus-chalk font-semibold">
-                  {sessionEndedSummary.total_turns}
-                </span>
-              </div>
-              <div className="flex justify-between text-elenchus-stone">
-                <span>Dialectic Depth:</span>
-                <span className="text-elenchus-terracotta font-semibold">
-                  {sessionEndedSummary.final_stage}
-                </span>
-              </div>
-            </div>
+      {/* Session stats header */}
+      <div className="space-y-1.5">
+        <span className="font-mono text-xs uppercase tracking-widest text-elenchus-emerald">
+          Sparring Session Concluded
+        </span>
+        <h3 className="font-serif text-2xl text-elenchus-chalk font-bold">
+          Dialectic Duel Complete
+        </h3>
+        <p className="text-elenchus-stone text-xs leading-relaxed">
+          You defended your stance across{" "}
+          <strong className="text-elenchus-chalk">{sessionEndedSummary.total_turns}</strong>{" "}
+          turns, reaching the{" "}
+          <strong className="text-elenchus-chalk">{sessionEndedSummary.final_stage}</strong> stage.
+        </p>
+      </div>
 
-            <div className="flex flex-col gap-3">
-              <button
-                onClick={() => router.push("/")}
-                className="w-full py-3 rounded-lg bg-elenchus-terracotta hover:bg-elenchus-terracotta-hover text-white font-mono text-xs uppercase tracking-wider font-semibold transition-all"
-              >
-                Return to Daily Drops
-              </button>
-            </div>
-          </div>
+      {/* Stats row */}
+      <div className="rounded-lg border border-elenchus-border bg-elenchus-ground p-3.5 flex gap-6 font-mono text-xs">
+        <div className="flex flex-col gap-0.5">
+          <span className="text-elenchus-stone">Total Volleys</span>
+          <span className="text-elenchus-chalk font-semibold text-base">
+            {sessionEndedSummary.total_turns}
+          </span>
+        </div>
+        <div className="w-px bg-elenchus-border" />
+        <div className="flex flex-col gap-0.5">
+          <span className="text-elenchus-stone">Dialectic Depth</span>
+          <span className="text-elenchus-terracotta font-semibold text-base">
+            {sessionEndedSummary.final_stage}
+          </span>
+        </div>
+        <div className="w-px bg-elenchus-border" />
+        <div className="flex flex-col gap-0.5">
+          <span className="text-elenchus-stone">Language</span>
+          <span className="text-elenchus-chalk font-semibold text-base uppercase">
+            {sessionEndedSummary.language === "hi-IN" ? "Hinglish" : "English"}
+          </span>
+        </div>
+      </div>
+
+      {/* Atomic Thought Card — shown only if scribe returned one */}
+      {sessionEndedSummary.thought_card ? (
+        <AtomicThoughtCard
+          card={sessionEndedSummary.thought_card}
+          topicTitle={topic?.title}
+        />
+      ) : (
+        <div className="rounded-lg border border-elenchus-border bg-elenchus-surface-2/40 p-4 text-center">
+          <p className="font-mono text-xs text-elenchus-stone">
+            Scribe analysis unavailable for this session.
+          </p>
         </div>
       )}
+
+      {/* CTA */}
+      <button
+        onClick={() => router.push("/")}
+        className="w-full py-3 rounded-lg bg-elenchus-terracotta hover:bg-elenchus-terracotta-hover text-white font-mono text-xs uppercase tracking-wider font-semibold transition-all"
+      >
+        Return to Daily Drops
+      </button>
+    </div>
+  </div>
+)}
     </div>
   );
 }
