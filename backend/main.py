@@ -1,6 +1,19 @@
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from backend.routers import topics, spar
+from backend.routers import topics, spar, spark
+from backend.services.gnani_stt import _get_client as get_stt_client
+from backend.services.gnani_tts import _get_client as get_tts_client
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Pre-warmup Gnani clients on server startup
+    try:
+        get_stt_client()
+        get_tts_client()
+    except Exception as exc:
+        print(f"Warning: Gnani SDK pre-warming failed")
+    yield
 
 app = FastAPI(
     title="elenchus.ai",
@@ -20,11 +33,13 @@ app.add_middleware(
         "X-Ai-Response",
         "X-Stage",
         "X-Is-Complete",
+        "X-Language",
     ],
 )
 
 app.include_router(topics.router)
 app.include_router(spar.router)
+app.include_router(spark.router)
 
 
 @app.get("/health")
