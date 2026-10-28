@@ -8,11 +8,12 @@ import { api } from "@/lib/api";
 import { AudioRecorder } from "@/lib/audioRecorder";
 import { STARTER_TOPICS } from "@/lib/starterTopics";
 import { Topic } from "@/types/topic";
-import { DialecticStage, EndSparResponse } from "@/types/spar";
+import { DialecticStage, EndSparResponse, SparLanguage } from "@/types/spar";
 import { VoiceOrb } from "@/components/spar/VoiceOrb";
 import { StageProgress } from "@/components/spar/StageProgress";
 import { TranscriptFeed } from "@/components/spar/TranscriptFeed";
 import { AtomicThoughtCard } from "@/components/spar/AtomicThoughtCard";
+import { LanguageToggle } from "@/components/ui/LanguageToggle";
 import {
   ArrowLeft,
   Send,
@@ -21,6 +22,7 @@ import {
   VolumeX,
   AlertCircle,
   X,
+  Sparkles,
 } from "lucide-react";
 
 export default function SparringArenaPage() {
@@ -37,6 +39,7 @@ export default function SparringArenaPage() {
     audioLevel,
     isComplete,
     errorMessage,
+    setLanguage,
     setSession,
     addTurn,
     setMicStatus,
@@ -52,6 +55,8 @@ export default function SparringArenaPage() {
   const [textInput, setTextInput] = useState<string>("");
   const [audioMuted, setAudioMuted] = useState<boolean>(false);
   const [sessionEndedSummary, setSessionEndedSummary] = useState<EndSparResponse | null>(null);
+  const [autoplayBlocked, setAutoplayBlocked] = useState<boolean>(false);
+  const textInputRef = useRef<HTMLInputElement | null>(null);
 
   const recorderRef = useRef<AudioRecorder | null>(null);
   const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
@@ -82,13 +87,43 @@ export default function SparringArenaPage() {
         URL.revokeObjectURL(url);
       };
 
-      player.play().catch((err) => {
+      player.play().catch((err: unknown) => {
         console.warn("Autoplay was prevented by browser:", err);
+        setAutoplayBlocked(true);
         setMicStatus("idle");
       });
     },
     [audioMuted, setMicStatus]
   );
+
+  // Dynamic language switcher (Phase 5.3)
+  const handleLanguageSwitch = useCallback(
+    async (newLang: SparLanguage) => {
+      if (newLang === language) return;
+      setLanguage(newLang);
+      if (sessionId) {
+        try {
+          await api.updateSessionLanguage(sessionId, newLang);
+        } catch (err: unknown) {
+          console.warn("Failed to sync session language to backend:", err);
+        }
+      }
+    },
+    [language, sessionId, setLanguage]
+  );
+
+  // Browser Autoplay Resume Handler (Phase 6.2)
+  const handleResumeAutoplay = useCallback(() => {
+    if (audioPlayerRef.current) {
+      audioPlayerRef.current
+        .play()
+        .then(() => {
+          setAutoplayBlocked(false);
+          setMicStatus("speaking");
+        })
+        .catch(() => setAutoplayBlocked(false));
+    }
+  }, [setMicStatus]);
 
   // 1. Initialize Topic & Session on Mount
   useEffect(() => {
@@ -99,6 +134,14 @@ export default function SparringArenaPage() {
 
     // Find topic from starters or fetch from API
     const localTopic = STARTER_TOPICS.find((t) => t.id === topicId);
+    const storedCustom = sessionStorage.getItem(`custom-topic-${topicId}`);
+    if (!localTopic && storedCustom) {
+    try {
+        setTopic(JSON.parse(storedCustom));
+    } catch {
+    // ignore parse errors
+    }
+}
     if (localTopic) {
       setTopic(localTopic);
     }
@@ -169,8 +212,9 @@ export default function SparringArenaPage() {
       setError(null);
     } catch (err: unknown) {
       console.error("Mic access failed:", err);
-      setError("Microphone permission denied or device unavailable.");
-      setMicStatus("error");
+      setError("Microphone unavailable or blocked. Switching to text rebuttal below.");
+      setMicStatus("idle");
+      setTimeout(() => textInputRef.current?.focus(),100);
     }
   }, [micStatus, sessionId, setAudioLevel, setError, setMicStatus]);
 
@@ -186,8 +230,8 @@ export default function SparringArenaPage() {
         throw new Error("No active session ID. Please refresh to re-initialize.");
       }
 
-      // Submit voice turn to FastAPI backend
-      const response = await api.sendTurnAudio(sessionId, audioBlob);
+      // Submit voice turn to FastAPI backend with active language
+      const response = await api.sendTurnAudio(sessionId, audioBlob, language);
 
       // Add turns to transcript feed
       addTurn("USER", response.userTranscript, response.stage);
@@ -206,7 +250,7 @@ export default function SparringArenaPage() {
       setError(msg);
       setMicStatus("idle");
     }
-  }, [micStatus, sessionId, addTurn, setStage, setComplete, playAudioBlob, setError, setMicStatus]);
+  }, [micStatus, sessionId, language, addTurn, setStage, setComplete, playAudioBlob, setError, setMicStatus]);
 
   // 3. Text Turn Handler (Fallback / Accessibility)
   const handleTextSubmit = async (e: React.FormEvent) => {
@@ -227,7 +271,7 @@ export default function SparringArenaPage() {
     addTurn("USER", userText, stage);
 
     try {
-      const response = await api.sendTurnText(sessionId, userText);
+      const response = await api.sendTurnText(sessionId, userText, language);
       addTurn("AI", response.ai_response, response.stage);
       setStage(response.stage as DialecticStage);
 
@@ -295,33 +339,35 @@ export default function SparringArenaPage() {
   return (
     <div className="min-h-screen flex flex-col bg-elenchus-ground text-elenchus-chalk">
       {/* Top Sparring Arena Navigation Bar */}
-      <nav className="border-b border-elenchus-border bg-elenchus-surface-1/70 backdrop-blur-md px-4 sm:px-8 py-3.5 flex items-center justify-between">
+      <nav className="border-b border-elenchus-border bg-elenchus-surface-1/70 backdrop-blur-md px-4 sm:px-8 py-3.5 flex items-center justify-between gap-4">
         <Link
           href="/"
-          className="inline-flex items-center gap-2 font-mono text-xs uppercase tracking-wider text-elenchus-stone hover:text-elenchus-chalk transition-colors"
+          className="inline-flex items-center gap-2 font-mono text-xs uppercase tracking-wider text-elenchus-stone hover:text-elenchus-chalk transition-colors shrink-0"
         >
           <ArrowLeft className="w-3.5 h-3.5" />
           <span>Exit Arena</span>
         </Link>
 
         {/* Center Topic Title & Session State */}
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 truncate">
           <span className="font-serif font-bold text-base sm:text-lg text-elenchus-chalk tracking-tight truncate max-w-xs sm:max-w-md">
             {topic?.title || "Socratic Duel"}
           </span>
           {sessionId ? (
-            <span className="hidden sm:inline-block font-mono text-[10px] uppercase px-2 py-0.5 rounded-full border border-elenchus-emerald/30 bg-elenchus-emerald/10 text-emerald-400">
+            <span className="hidden sm:inline-block font-mono text-[10px] uppercase px-2 py-0.5 rounded-full border border-elenchus-emerald/30 bg-elenchus-emerald/10 text-emerald-400 shrink-0">
               ACTIVE DUEL
             </span>
           ) : (
-            <span className="hidden sm:inline-block font-mono text-[10px] uppercase px-2 py-0.5 rounded-full border border-elenchus-amber/30 bg-elenchus-amber/10 text-elenchus-amber animate-pulse">
+            <span className="hidden sm:inline-block font-mono text-[10px] uppercase px-2 py-0.5 rounded-full border border-elenchus-amber/30 bg-elenchus-amber/10 text-elenchus-amber animate-pulse shrink-0">
               INITIALIZING...
             </span>
           )}
         </div>
 
-        {/* Right Session Actions */}
-        <div className="flex items-center gap-3">
+        {/* Right Session Actions & Language Switcher */}
+        <div className="flex items-center gap-2.5 sm:gap-3 shrink-0">
+          <LanguageToggle size="sm" onLanguageChange={handleLanguageSwitch} />
+
           <button
             onClick={() => setAudioMuted(!audioMuted)}
             className="p-1.5 rounded-md border border-elenchus-border bg-elenchus-surface-2 text-elenchus-stone hover:text-elenchus-chalk"
@@ -338,10 +384,26 @@ export default function SparringArenaPage() {
             className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-elenchus-crimson/30 bg-elenchus-crimson/10 font-mono text-xs uppercase tracking-wider text-elenchus-crimson hover:bg-elenchus-crimson hover:text-white transition-all"
           >
             <Flag className="w-3 h-3" />
-            <span className="hidden sm:inline">Conclude Spar</span>
+            <span className="hidden sm:inline">Conclude</span>
           </button>
         </div>
       </nav>
+
+      {/* Browser Autoplay Interceptor Banner (Phase 6.2) */}
+      {autoplayBlocked && (
+        <div className="bg-elenchus-surface-2 border-b border-elenchus-terracotta/40 px-4 py-2.5 flex items-center justify-between text-xs font-mono text-elenchus-chalk">
+          <div className="flex items-center gap-2">
+            <Volume2 className="w-4 h-4 text-elenchus-terracotta animate-pulse" />
+            <span>Browser paused AI voice output. Tap to hear adversary.</span>
+          </div>
+          <button
+            onClick={handleResumeAutoplay}
+            className="px-3 py-1 rounded bg-elenchus-terracotta text-white font-semibold hover:bg-elenchus-terracotta-hover transition-colors"
+          >
+            Play Voice
+          </button>
+        </div>
+      )}
 
       {/* Optional Error Alert Banner */}
       {errorMessage && (
@@ -374,13 +436,18 @@ export default function SparringArenaPage() {
 
         {/* Right Column: Voice Orb Sparring Deck (5 cols) */}
         <section className="lg:col-span-5 flex flex-col justify-between rounded-xl border border-elenchus-border bg-elenchus-surface-1/60 p-6 sm:p-8 space-y-6">
-          {/* Top Dialectic Status Indicator */}
-          <div className="space-y-2">
-            <div className="flex items-center justify-between font-mono text-[11px] uppercase tracking-wider text-elenchus-muted border-b border-elenchus-border pb-3">
-              <span>Socratic Voice Loop</span>
-              <span className="text-elenchus-terracotta">
-                {language === "hi-IN" ? "HINGLISH · POORVI" : "INDIAN ENGLISH · KAVERI"}
-              </span>
+          {/* Top Dialectic Status Indicator with Code-Switching Switcher */}
+          <div className="space-y-3">
+            <div className="flex items-center justify-between border-b border-elenchus-border pb-3">
+              <div className="space-y-0.5">
+                <span className="font-mono text-[10px] uppercase tracking-wider text-elenchus-muted">
+                  Voice Core & Engine
+                </span>
+                <p className="font-mono text-xs font-semibold text-elenchus-terracotta">
+                  {language === "hi-IN" ? "HINGLISH · POORVI" : "INDIAN ENGLISH · KAVERI"}
+                </p>
+              </div>
+              <LanguageToggle size="sm" onLanguageChange={handleLanguageSwitch} />
             </div>
             <p className="text-xs text-elenchus-stone leading-relaxed">
               Hold the core to speak, or hold <kbd className="px-1.5 py-0.5 rounded bg-elenchus-surface-3 font-mono text-[10px] text-elenchus-chalk">SPACE</kbd>. Release when you have stated your premise.
@@ -404,12 +471,15 @@ export default function SparringArenaPage() {
             className="flex items-center gap-2 pt-4 border-t border-elenchus-border"
           >
             <input
+              ref={textInputRef}
               type="text"
               value={textInput}
               onChange={(e) => setTextInput(e.target.value)}
               placeholder={
                 sessionId
-                  ? "Or type your counter-argument here..."
+                  ? language === "hi-IN"
+                    ? "Apna counter-argument yahan type karo..."
+                    : "Or type your counter-argument here..."
                   : "Connecting to Socratic Arena..."
               }
               disabled={loading || micStatus === "thinking" || !sessionId}
@@ -427,75 +497,70 @@ export default function SparringArenaPage() {
         </section>
       </main>
 
-      {/* Session Completion / Atomic Thought Card Modal */}
-{sessionEndedSummary && (
-  <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
-    <div className="max-w-lg w-full rounded-2xl border border-elenchus-border bg-elenchus-surface-1 p-6 sm:p-8 space-y-6 shadow-2xl my-auto">
+      {/* Session Completion / Ambient Scribe Modal */}
+      {sessionEndedSummary && (
+        <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto">
+          <div className="max-w-2xl w-full rounded-2xl border border-elenchus-border bg-elenchus-surface-1 p-6 sm:p-8 space-y-6 shadow-2xl my-8">
+            <div className="flex items-start justify-between gap-4">
+              <div className="space-y-1">
+                <span className="font-mono text-xs uppercase tracking-widest text-elenchus-emerald flex items-center gap-1.5">
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span>Sparring Duel Concluded</span>
+                </span>
+                <h3 className="font-serif text-2xl sm:text-3xl text-elenchus-chalk font-bold">
+                  Post-Debate Synthesis
+                </h3>
+              </div>
+              <button
+                onClick={() => setSessionEndedSummary(null)}
+                className="p-1 rounded-md text-elenchus-muted hover:text-elenchus-chalk"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
 
-      {/* Session stats header */}
-      <div className="space-y-1.5">
-        <span className="font-mono text-xs uppercase tracking-widest text-elenchus-emerald">
-          Sparring Session Concluded
-        </span>
-        <h3 className="font-serif text-2xl text-elenchus-chalk font-bold">
-          Dialectic Duel Complete
-        </h3>
-        <p className="text-elenchus-stone text-xs leading-relaxed">
-          You defended your stance across{" "}
-          <strong className="text-elenchus-chalk">{sessionEndedSummary.total_turns}</strong>{" "}
-          turns, reaching the{" "}
-          <strong className="text-elenchus-chalk">{sessionEndedSummary.final_stage}</strong> stage.
-        </p>
-      </div>
+            {/* Atomic Thought Card Component (Phase 4.4 & 4.5) */}
+            {sessionEndedSummary.thought_card && (
+              <div className="rounded-xl border border-elenchus-border bg-elenchus-surface-2/40 p-5">
+                <AtomicThoughtCard
+                  card={sessionEndedSummary.thought_card}
+                  topicTitle={topic?.title}
+                  totalTurns={sessionEndedSummary.total_turns}
+                  finalStage={sessionEndedSummary.final_stage}
+                  language={sessionEndedSummary.language}
+                />
+              </div>
+            )}
 
-      {/* Stats row */}
-      <div className="rounded-lg border border-elenchus-border bg-elenchus-ground p-3.5 flex gap-6 font-mono text-xs">
-        <div className="flex flex-col gap-0.5">
-          <span className="text-elenchus-stone">Total Volleys</span>
-          <span className="text-elenchus-chalk font-semibold text-base">
-            {sessionEndedSummary.total_turns}
-          </span>
-        </div>
-        <div className="w-px bg-elenchus-border" />
-        <div className="flex flex-col gap-0.5">
-          <span className="text-elenchus-stone">Dialectic Depth</span>
-          <span className="text-elenchus-terracotta font-semibold text-base">
-            {sessionEndedSummary.final_stage}
-          </span>
-        </div>
-        <div className="w-px bg-elenchus-border" />
-        <div className="flex flex-col gap-0.5">
-          <span className="text-elenchus-stone">Language</span>
-          <span className="text-elenchus-chalk font-semibold text-base uppercase">
-            {sessionEndedSummary.language === "hi-IN" ? "Hinglish" : "English"}
-          </span>
-        </div>
-      </div>
+            {/* Session Telemetry Strip */}
+            <div className="grid grid-cols-3 gap-3 rounded-lg border border-elenchus-border bg-elenchus-ground p-3.5 font-mono text-xs">
+              <div className="space-y-0.5">
+                <span className="text-[10px] uppercase text-elenchus-muted">Total Volleys</span>
+                <p className="text-elenchus-chalk font-semibold">{sessionEndedSummary.total_turns}</p>
+              </div>
+              <div className="space-y-0.5">
+                <span className="text-[10px] uppercase text-elenchus-muted">Final Depth</span>
+                <p className="text-elenchus-terracotta font-semibold">{sessionEndedSummary.final_stage}</p>
+              </div>
+              <div className="space-y-0.5">
+                <span className="text-[10px] uppercase text-elenchus-muted">Language</span>
+                <p className="text-elenchus-stone font-semibold">
+                  {sessionEndedSummary.language === "hi-IN" ? "Hinglish (Poorvi)" : "English (Kaveri)"}
+                </p>
+              </div>
+            </div>
 
-      {/* Atomic Thought Card — shown only if scribe returned one */}
-      {sessionEndedSummary.thought_card ? (
-        <AtomicThoughtCard
-          card={sessionEndedSummary.thought_card}
-          topicTitle={topic?.title}
-        />
-      ) : (
-        <div className="rounded-lg border border-elenchus-border bg-elenchus-surface-2/40 p-4 text-center">
-          <p className="font-mono text-xs text-elenchus-stone">
-            Scribe analysis unavailable for this session.
-          </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => router.push("/")}
+                className="flex-1 py-3 rounded-lg bg-elenchus-terracotta hover:bg-elenchus-terracotta-hover text-white font-mono text-xs uppercase tracking-wider font-semibold transition-all"
+              >
+                Return to Daily Drops
+              </button>
+            </div>
+          </div>
         </div>
       )}
-
-      {/* CTA */}
-      <button
-        onClick={() => router.push("/")}
-        className="w-full py-3 rounded-lg bg-elenchus-terracotta hover:bg-elenchus-terracotta-hover text-white font-mono text-xs uppercase tracking-wider font-semibold transition-all"
-      >
-        Return to Daily Drops
-      </button>
-    </div>
-  </div>
-)}
     </div>
   );
 }
