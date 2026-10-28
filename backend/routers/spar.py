@@ -1,15 +1,17 @@
 """
 Spar session lifecycle routes:
   POST /spar/start          → create a session, get AI intro turn
+  POST /spar/start/audio    → voice-first session init
   POST /spar/turn           → send audio, receive AI audio response
   POST /spar/turn/text      → send text turn, receive AI text response
+  POST /spar/session/{id}/language → dynamically switch dialectic language
   POST /spar/end            → close session, trigger scribe
 """
 
 import uuid
 import json
 import urllib.parse
-from fastapi import APIRouter, UploadFile, File, HTTPException, Body
+from fastapi import APIRouter, UploadFile, File, HTTPException
 from fastapi.responses import Response
 from pydantic import BaseModel
 
@@ -22,6 +24,7 @@ from backend.services.socratic_engine import (
     get_next_turn,
     init_session_cache,
     delete_session_cache,
+    _build_static_system_prompt,
 )
 from backend.services.scribe import generate_thought_card, ThoughtCard
 from backend.routers.topics import _TOPICS_PATH
@@ -49,6 +52,7 @@ class StartSparResponse(BaseModel):
 class TurnTextRequest(BaseModel):
     session_id: str
     user_text: str
+    language: str | None = None
 
 
 class TurnTextResponse(BaseModel):
@@ -59,11 +63,28 @@ class TurnTextResponse(BaseModel):
     is_complete: bool
 
 
+class LanguageUpdateRequest(BaseModel):
+    language: str  # "en-IN" | "hi-IN"
+
+
 # ---------------------------------------------------------------------------
-# Helpers
+# Helpers & Custom Topic Registry (Phase 5.5)
 # ---------------------------------------------------------------------------
 
+_custom_topics: dict[str, dict] = {}
+
+
+def register_custom_topic(topic_data: dict) -> None:
+    """Store dynamically synthesized topics in memory for the server lifetime."""
+    _custom_topics[topic_data["id"]] = topic_data
+
+
 def _load_topic(topic_id: str) -> dict:
+    # 1. Check dynamically synthesized custom spark topics
+    if topic_id in _custom_topics:
+        return _custom_topics[topic_id]
+
+    # 2. Check static daily drops in topics.json
     with open(_TOPICS_PATH, encoding="utf-8") as f:
         data = json.load(f)
     for t in data:
@@ -90,7 +111,7 @@ async def start_spar(req: StartSparRequest) -> StartSparResponse:
         language=req.language,
         stage=Stage.INTRO,
     )
-    # Initialize Gemini context cache
+    # Initialize Gemini context cache / prompt
     await init_session_cache(session)
     intro_text = topic["opening_trap"]
     session.history.append(Turn(role="AI", text=intro_text))
@@ -119,14 +140,14 @@ async def start_spar_audio(
         stage=Stage.INTRO,
     )
 
-    # Initialize Gemini context cache
+    # Initialize Gemini context cache / prompt
     await init_session_cache(session)
 
     intro_text = topic["opening_trap"]
     session.history.append(Turn(role="AI", text=intro_text))
     _sessions[session_id] = session
 
-    # Synthesize intro as audio
+    # Synthesize intro as audio (auto-routes to Poorvi if hi-IN, Kaveri if en-IN)
     audio_bytes = await synthesize_speech(intro_text, language=language)
 
     return Response(
@@ -140,6 +161,35 @@ async def start_spar_audio(
     )
 
 
+@router.post("/session/{session_id}/language")
+async def update_session_language(
+    session_id: str,
+    req: LanguageUpdateRequest,
+) -> dict:
+    """
+    Dynamically update the active dialectic language for a sparring session.
+    Switches between 'en-IN' (Indian English · Kaveri) and 'hi-IN' (Hinglish · Poorvi).
+    """
+    if req.language not in {"en-IN", "hi-IN"}:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Unsupported language code '{req.language}'. Must be 'en-IN' or 'hi-IN'.",
+        )
+    session = _sessions.get(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    session.language = req.language
+    session.static_prompt = _build_static_system_prompt(session)
+
+    return {
+        "status": "ok",
+        "session_id": session_id,
+        "language": req.language,
+        "voice": "Poorvi" if req.language == "hi-IN" else "Kaveri",
+    }
+
+
 @router.post("/turn/text", response_model=TurnTextResponse)
 async def spar_turn_text(
     body: TurnTextRequest | None = None,
@@ -151,12 +201,19 @@ async def spar_turn_text(
     """
     sid = body.session_id if body else session_id
     text = body.user_text if body else user_text
+    lang = body.language if body else None
+
     if not sid or not text:
         raise HTTPException(status_code=422, detail="session_id and user_text are required")
 
     session = _sessions.get(sid)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
+
+    # Sync language if requested
+    if lang and lang in {"en-IN", "hi-IN"} and session.language != lang:
+        session.language = lang
+        session.static_prompt = _build_static_system_prompt(session)
 
     ai_response, is_complete = await get_next_turn(session, text)
 
@@ -172,31 +229,55 @@ async def spar_turn_text(
 @router.post("/turn", response_class=Response)
 async def spar_turn_audio(
     session_id: str,
+    language: str | None = None,
     audio: UploadFile = File(...),
 ) -> Response:
     """
     Full voice turn:
       1. Receive audio file from browser
-      2. Transcribe via Gnani Prisma STT
+      2. Transcribe via Gnani Prisma STT (with session language code)
       3. Pass transcript to Socratic Engine
-      4. Synthesize response via Gnani Timbre TTS
+      4. Synthesize response via Gnani Timbre TTS (Kaveri or Poorvi)
       5. Return WAV audio + metadata headers
     """
     session = _sessions.get(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
 
-    # Step 1: Transcribe
+    # Sync language if requested
+    if language and language in {"en-IN", "hi-IN"} and session.language != language:
+        session.language = language
+        session.static_prompt = _build_static_system_prompt(session)
+
+    # Step 1: Transcribe with current session language
     audio_bytes = await audio.read()
     user_transcript = await transcribe_audio(audio_bytes, language=session.language)
 
+    # In-character recovery for empty/unintelligible audio (Phase 6.2)
     if not user_transcript:
-        raise HTTPException(status_code=422, detail="Could not transcribe audio. Try again.")
+        if session.language == "hi-IN":
+            fallback_msg = "Mujhe sunai nahi diya. Clear bolo aur apna point defend karo."
+        else:
+            fallback_msg = "I couldn't hear that premise. Speak clearly and defend your point."
+
+        tts_audio = await synthesize_speech(fallback_msg, language=session.language)
+        return Response(
+            content=tts_audio,
+            media_type="audio/wav",
+            headers={
+                "X-Session-Id": session_id,
+                "X-User-Transcript": urllib.parse.quote("..."),
+                "X-Ai-Response": urllib.parse.quote(fallback_msg),
+                "X-Stage": session.stage.value,
+                "X-Is-Complete": "false",
+                "X-Language": session.language,
+            },
+        )
 
     # Step 2: Socratic Engine
     ai_response, is_complete = await get_next_turn(session, user_transcript)
 
-    # Step 3: Synthesize
+    # Step 3: Synthesize (auto-routes to Poorvi for hi-IN, Kaveri for en-IN)
     tts_audio = await synthesize_speech(ai_response, language=session.language)
 
     return Response(
@@ -208,6 +289,7 @@ async def spar_turn_audio(
             "X-Ai-Response": urllib.parse.quote(ai_response),
             "X-Stage": session.stage.value,
             "X-Is-Complete": str(is_complete).lower(),
+            "X-Language": session.language,
         },
     )
 
