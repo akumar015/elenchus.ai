@@ -110,17 +110,35 @@ export const api = {
   },
 
   /**
+   * Dynamically switch dialectic language for an active session
+   */
+  async updateSessionLanguage(
+    sessionId: string,
+    language: SparLanguage
+  ): Promise<{ status: string; session_id: string; language: string; voice: string }> {
+    return request<{ status: string; session_id: string; language: string; voice: string }>(
+      `/spar/session/${encodeURIComponent(sessionId)}/language`,
+      {
+        method: "POST",
+        body: JSON.stringify({ language }),
+      }
+    );
+  },
+
+  /**
    * Submit text turn to the engine (JSON body)
    */
   async sendTurnText(
     sessionId: string,
-    userText: string
+    userText: string,
+    language?: SparLanguage
   ): Promise<TurnTextResponse> {
     return request<TurnTextResponse>("/spar/turn/text", {
       method: "POST",
       body: JSON.stringify({
         session_id: sessionId,
         user_text: userText,
+        language,
       }),
     });
   },
@@ -130,12 +148,14 @@ export const api = {
    */
   async sendTurnAudio(
     sessionId: string,
-    audioBlob: Blob
+    audioBlob: Blob,
+    language?: SparLanguage
   ): Promise<TurnAudioResponse> {
     const formData = new FormData();
     formData.append("audio", audioBlob, "user_turn.wav");
 
-    const url = `${API_BASE_URL}/spar/turn?session_id=${encodeURIComponent(sessionId)}`;
+    const langParam = language ? `&language=${encodeURIComponent(language)}` : "";
+    const url = `${API_BASE_URL}/spar/turn?session_id=${encodeURIComponent(sessionId)}${langParam}`;
     const response = await fetch(url, {
       method: "POST",
       body: formData,
@@ -177,5 +197,24 @@ export const api = {
   async endSpar(sessionId: string): Promise<EndSparResponse> {
     const url = `/spar/end?session_id=${encodeURIComponent(sessionId)}`;
     return request<EndSparResponse>(url, { method: "POST" });
+  },
+
+  /**
+   * Extract a URL and synthesize a custom debate topic (Phase 5.4 + 5.5)
+   */
+  async synthesizeSpark(url: string): Promise<{
+    topic: {
+      id: string;
+      title: string;
+      category: string;
+      summary: string;
+      opening_trap: string;
+      source_url: string;
+    };
+  }> {
+    return request("/spark/synthesize", {
+      method: "POST",
+      body: JSON.stringify({ url }),
+    });
   },
 };
