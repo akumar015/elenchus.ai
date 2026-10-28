@@ -2,12 +2,10 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { useSparStore } from "@/lib/store";
 import { api } from "@/lib/api";
-import { SparLanguage } from "@/types/spar";
+import { LanguageToggle } from "@/components/ui/LanguageToggle";
 
 export function Header() {
-  const { language, setLanguage } = useSparStore();
   const [backendOnline, setBackendOnline] = useState<boolean | null>(null);
 
   useEffect(() => {
@@ -24,10 +22,6 @@ export function Header() {
       isMounted = false;
     };
   }, []);
-
-  const handleLanguageToggle = (lang: SparLanguage) => {
-    setLanguage(lang);
-  };
 
   return (
     <header className="w-full border-b border-elenchus-border bg-elenchus-ground/80 backdrop-blur-md sticky top-0 z-40 transition-colors">
@@ -76,31 +70,8 @@ export function Header() {
             </span>
           </div>
 
-          {/* Language Code-Switch Toggle (Prepares Phase 5) */}
-          <div className="flex items-center rounded-lg border border-elenchus-border bg-elenchus-surface-1 p-0.5">
-            <button
-              onClick={() => handleLanguageToggle("en-IN")}
-              className={`px-2.5 py-1 rounded-md text-xs font-mono transition-all ${
-                language === "en-IN"
-                  ? "bg-elenchus-surface-3 text-elenchus-chalk font-medium shadow-sm"
-                  : "text-elenchus-muted hover:text-elenchus-stone"
-              }`}
-              title="English (India)"
-            >
-              EN
-            </button>
-            <button
-              onClick={() => handleLanguageToggle("hi-IN")}
-              className={`px-2.5 py-1 rounded-md text-xs font-mono transition-all ${
-                language === "hi-IN"
-                  ? "bg-elenchus-terracotta/20 text-elenchus-terracotta font-medium shadow-sm border border-elenchus-terracotta/30"
-                  : "text-elenchus-muted hover:text-elenchus-stone"
-              }`}
-              title="Hinglish (Code-switching mode)"
-            >
-              HINGLISH
-            </button>
-          </div>
+          {/* Language Code-Switch Toggle */}
+          <LanguageToggle showIcon={true} />
         </div>
       </div>
     </header>

@@ -2,13 +2,16 @@
 
 import Link from "next/link";
 import { Topic } from "@/types/topic";
-import { ArrowUpRight, Flame } from "lucide-react";
+import { useSparStore } from "@/lib/store";
+import { ArrowUpRight, Flame, Languages } from "lucide-react";
 
 interface TopicCardProps {
   topic: Topic;
 }
 
 export function TopicCard({ topic }: TopicCardProps) {
+  const { language } = useSparStore();
+
   // Category-specific semantic color mapping
   const getCategoryStyles = (category: string) => {
     switch (category.toLowerCase()) {
@@ -30,7 +33,7 @@ export function TopicCard({ topic }: TopicCardProps) {
 
   return (
     <article className="group relative flex flex-col justify-between rounded-xl border border-elenchus-border bg-elenchus-surface-1 p-6 transition-all duration-300 hover:border-elenchus-terracotta/40 hover:bg-elenchus-surface-2/60">
-      {/* Top Header: Category & Challenge Index */}
+      {/* Top Header: Category & Language Indicator */}
       <div className="flex items-center justify-between gap-2 mb-4">
         <span
           className={`font-mono text-[11px] uppercase tracking-wider px-2.5 py-0.5 rounded-full border ${getCategoryStyles(
@@ -39,9 +42,12 @@ export function TopicCard({ topic }: TopicCardProps) {
         >
           {topic.category}
         </span>
-        <span className="font-mono text-[11px] text-elenchus-muted">
-          SPAR #{topic.id.slice(0, 4)}
-        </span>
+        <div className="flex items-center gap-1.5 font-mono text-[10px] text-elenchus-muted bg-elenchus-ground px-2 py-0.5 rounded border border-elenchus-border">
+          <Languages className="w-2.5 h-2.5 text-elenchus-stone" />
+          <span className={language === "hi-IN" ? "text-elenchus-terracotta font-medium" : "text-elenchus-stone"}>
+            {language === "hi-IN" ? "HINGLISH · POORVI" : "EN · KAVERI"}
+          </span>
+        </div>
       </div>
 
       {/* Main Content */}

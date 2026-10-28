@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { Mic, Loader2, Volume2, Sparkles } from "lucide-react";
 import { MicStatus } from "@/types/spar";
 
@@ -12,6 +12,12 @@ interface VoiceOrbProps {
   disabled?: boolean;
 }
 
+const THINKING_CADENCES = [
+  "DISSECTING PREMISE...",
+  "SEARCHING FOR LOGICAL CONTRADICTIONS...",
+  "SYNTHESIZING ADVERSARIAL TRAP...",
+];
+
 export function VoiceOrb({
   status,
   audioLevel,
@@ -19,6 +25,20 @@ export function VoiceOrb({
   onPressEnd,
   disabled = false,
 }: VoiceOrbProps) {
+  const [cadenceIndex, setCadenceIndex] = useState(0);
+
+  // Cycle cognitive cadence cues during thinking state (Phase 6.1)
+  useEffect(() => {
+    if (status !== "thinking") {
+      setCadenceIndex(0);
+      return;
+    }
+    const interval = setInterval(() => {
+      setCadenceIndex((prev) => (prev + 1) % THINKING_CADENCES.length);
+    }, 1100);
+    return () => clearInterval(interval);
+  }, [status]);
+
   // Compute dynamic scale based on real-time audio volume
   const dynamicScale = useMemo(() => {
     if (status === "listening") {
@@ -33,7 +53,7 @@ export function VoiceOrb({
       case "listening":
         return "LISTENING · RELEASE TO SEND";
       case "thinking":
-        return "DECONSTRUCTING ARGUMENT...";
+        return THINKING_CADENCES[cadenceIndex];
       case "speaking":
         return "ELENCHUS SPARRING...";
       case "error":
@@ -41,7 +61,7 @@ export function VoiceOrb({
       default:
         return "HOLD TO SPEAK (OR SPACEBAR)";
     }
-  }, [status]);
+  }, [status, cadenceIndex]);
 
   return (
     <div className="flex flex-col items-center justify-center gap-6 select-none">
@@ -146,9 +166,9 @@ export function VoiceOrb({
       </div>
 
       {/* State Cue Label */}
-      <div className="flex items-center gap-2 font-mono text-xs text-elenchus-stone tracking-wider">
-        <Sparkles className="w-3.5 h-3.5 text-elenchus-terracotta" />
-        <span>{stateLabel}</span>
+      <div className="flex items-center gap-2 font-mono text-xs text-elenchus-stone tracking-wider min-h-[1.25rem]">
+        <Sparkles className="w-3.5 h-3.5 text-elenchus-terracotta shrink-0" />
+        <span className="truncate">{stateLabel}</span>
       </div>
     </div>
   );
