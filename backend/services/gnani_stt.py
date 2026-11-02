@@ -37,5 +37,7 @@ async def transcribe_audio(audio_bytes: bytes, language: str = "en-IN") -> str:
         language_code=language,
         format="transcribe",
     )
+    print(f"[STT DEBUG] Raw result from Gnani: {result}")
     transcript = (result.get("transcript") or "").strip()
+    print(f"[STT DEBUG] Extracted transcript: '{transcript}'")
     return transcript
