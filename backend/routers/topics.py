@@ -6,6 +6,8 @@ import json
 from pathlib import Path
 from fastapi import APIRouter
 from pydantic import BaseModel
+from backend.services.dossier_loader import load_topic_dossier
+
 
 router = APIRouter(prefix="/topics", tags=["topics"])
 
@@ -18,6 +20,7 @@ class Topic(BaseModel):
     category: str
     summary: str
     opening_trap: str
+    dossier: str= ""
 
 
 @router.get("/daily", response_model=list[Topic])
@@ -30,11 +33,12 @@ async def get_daily_topics() -> list[Topic]:
 
 @router.get("/{topic_id}", response_model=Topic)
 async def get_topic(topic_id: str) -> Topic:
-    """Return a single topic by its ID."""
+    """Return a single topic by its ID with full dossier context."""
     with open(_TOPICS_PATH, encoding="utf-8") as f:
         data = json.load(f)
     for t in data:
         if t["id"] == topic_id:
+            t["dossier"]= load_topic_dossier(t["id"], t["summary"])
             return Topic(**t)
     from fastapi import HTTPException
     raise HTTPException(status_code=404, detail=f"Topic '{topic_id}' not found")
