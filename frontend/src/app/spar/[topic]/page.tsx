@@ -222,10 +222,10 @@ export default function SparringArenaPage() {
     if (micStatus !== "listening" || !recorderRef.current) return;
 
     try {
-      setMicStatus("thinking");
       const audioBlob = await recorderRef.current.stop();
       recorderRef.current = null;
-
+      setMicStatus("thinking");
+      
       if (!sessionId) {
         throw new Error("No active session ID. Please refresh to re-initialize.");
       }
