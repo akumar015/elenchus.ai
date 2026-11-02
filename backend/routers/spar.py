@@ -28,6 +28,7 @@ from backend.services.socratic_engine import (
 )
 from backend.services.scribe import generate_thought_card, ThoughtCard
 from backend.routers.topics import _TOPICS_PATH
+from backend.services.dossier_loader import load_topic_dossier
 
 router = APIRouter(prefix="/spar", tags=["spar"])
 
@@ -82,14 +83,19 @@ def register_custom_topic(topic_data: dict) -> None:
 def _load_topic(topic_id: str) -> dict:
     # 1. Check dynamically synthesized custom spark topics
     if topic_id in _custom_topics:
-        return _custom_topics[topic_id]
+        t=dict(_custom_topics[topic_id])
+        if "dossier" not in t:
+            t["dossier"]= load_topic_dossier(topic_id, t.get("summary", ""))
+            return t
 
     # 2. Check static daily drops in topics.json
     with open(_TOPICS_PATH, encoding="utf-8") as f:
         data = json.load(f)
     for t in data:
         if t["id"] == topic_id:
-            return t
+            topic_dict = dict(t)
+            topic_dict["dossier"]= load_topic_dossier(t["id"], t.get("summary",""))
+            return topic_dict
     raise HTTPException(status_code=404, detail=f"Topic '{topic_id}' not found")
 
 
@@ -110,12 +116,11 @@ async def start_spar(req: StartSparRequest) -> StartSparResponse:
         opening_trap=topic["opening_trap"],
         language=req.language,
         stage=Stage.INTRO,
+        topic_dossier=topic.get("dossier","")
     )
     # Initialize Gemini context cache / prompt
     await init_session_cache(session)
-    intro_text = topic["opening_trap"]
-    session.history.append(Turn(role="AI", text=intro_text))
-    _sessions[session_id] = session
+    intro_text, _ = await get_next_turn(session, "Let's start.")
     return StartSparResponse(session_id=session_id, intro_text=intro_text)
 
 
@@ -143,11 +148,10 @@ async def start_spar_audio(
     # Initialize Gemini context cache / prompt
     await init_session_cache(session)
 
-    intro_text = topic["opening_trap"]
-    session.history.append(Turn(role="AI", text=intro_text))
+    intro_text, _ = await get_next_turn(session, "Let's start.")
     _sessions[session_id] = session
 
-    # Synthesize intro as audio (auto-routes to Poorvi if hi-IN, Kaveri if en-IN)
+    # Synthesize intro as audio (auto-routes to Shivani if hi-IN, Kalpana if en-IN)
     audio_bytes = await synthesize_speech(intro_text, language=language)
 
     return Response(
@@ -168,7 +172,7 @@ async def update_session_language(
 ) -> dict:
     """
     Dynamically update the active dialectic language for a sparring session.
-    Switches between 'en-IN' (Indian English · Kaveri) and 'hi-IN' (Hinglish · Poorvi).
+    Switches between 'en-IN' (Indian English · Kalpana) and 'hi-IN' (Hinglish · Shivani).
     """
     if req.language not in {"en-IN", "hi-IN"}:
         raise HTTPException(
@@ -186,7 +190,7 @@ async def update_session_language(
         "status": "ok",
         "session_id": session_id,
         "language": req.language,
-        "voice": "Poorvi" if req.language == "hi-IN" else "Kaveri",
+        "voice": "Shivani" if req.language == "hi-IN" else "Kalpana",
     }
 
 
@@ -237,7 +241,7 @@ async def spar_turn_audio(
       1. Receive audio file from browser
       2. Transcribe via Gnani Prisma STT (with session language code)
       3. Pass transcript to Socratic Engine
-      4. Synthesize response via Gnani Timbre TTS (Kaveri or Poorvi)
+      4. Synthesize response via Gnani Timbre TTS (Kalpana or Shivani)
       5. Return WAV audio + metadata headers
     """
     session = _sessions.get(session_id)
@@ -277,7 +281,7 @@ async def spar_turn_audio(
     # Step 2: Socratic Engine
     ai_response, is_complete = await get_next_turn(session, user_transcript)
 
-    # Step 3: Synthesize (auto-routes to Poorvi for hi-IN, Kaveri for en-IN)
+    # Step 3: Synthesize (auto-routes to Shivani for hi-IN, Kalpana for en-IN)
     tts_audio = await synthesize_speech(ai_response, language=session.language)
 
     return Response(
