@@ -52,6 +52,10 @@ export class AudioRecorder {
       sampleRate: this.options.sampleRate,
     });
 
+    if (this.audioContext.state === "suspended") {
+      await this.audioContext.resume();
+    }
+
     this.sourceNode = this.audioContext.createMediaStreamSource(this.mediaStream);
     this.analyser = this.audioContext.createAnalyser();
     this.analyser.fftSize = 256;
@@ -146,6 +150,12 @@ export class AudioRecorder {
       this.mediaStream = null;
     }
 
+    // Guard: Prevent sending 0-frame / 44-byte dead WAV to the backend
+    // At 16kHz, 4000 samples is 250ms of audio
+    if (this.totalSampleCount < 4000) {
+      throw new Error("Recording too short. Please hold the button while speaking.");
+    }
+
     // Merge Float32 samples
     const merged = new Float32Array(this.totalSampleCount);
     let offset = 0;
@@ -156,8 +166,7 @@ export class AudioRecorder {
 
     // Encode to 16-bit mono PCM WAV
     const sampleRate = this.options.sampleRate || 16000;
-    const wavBlob = this.encodeWAV(merged, sampleRate);
-    return wavBlob;
+    return this.encodeWAV(merged, sampleRate);
   }
 
   /**
