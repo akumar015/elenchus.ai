@@ -1,13 +1,35 @@
 import { create } from "zustand";
 import { Topic } from "@/types/topic";
-import { DialecticStage, MicStatus, SparLanguage, Turn } from "@/types/spar";
+import {
+  ActiveSpeaker,
+  DialecticMode,
+  DialecticStage,
+  MicStatus,
+  SparLanguage,
+  SpeakerRole,
+  Turn,
+} from "@/types/spar";
+
+export interface UserProfile {
+  name: string;
+  email: string;
+  picture?: string;
+  sub?: string;
+  idToken?: string;
+}
 
 interface SparState {
+  // User Authentication
+  user: UserProfile | null;
+  setUser: (user: UserProfile | null) => void;
+  logout: () => void;
+
   // Session & Topic State
   currentTopic: Topic | null;
   sessionId: string | null;
+  mode: DialecticMode;
   language: SparLanguage;
-  stage: DialecticStage;
+  stage: DialecticStage | string;
   isComplete: boolean;
 
   // Dialogue & Turns
@@ -15,6 +37,7 @@ interface SparState {
 
   // Real-time Voice & Audio Telemetry
   micStatus: MicStatus;
+  activeSpeaker: ActiveSpeaker;
   audioLevel: number; // 0.0 - 1.0 (RMS normalized)
   activeAudioUrl: string | null; // Currently playing AI audio
 
@@ -23,12 +46,24 @@ interface SparState {
 
   // Actions
   setCurrentTopic: (topic: Topic | null) => void;
+  setMode: (mode: DialecticMode) => void;
   setLanguage: (lang: SparLanguage) => void;
   setSession: (sessionId: string, introText?: string) => void;
-  addTurn: (role: "AI" | "USER", text: string, stage?: DialecticStage) => void;
+  addTurn: (
+    role: SpeakerRole,
+    text: string,
+    stage?: DialecticStage | string,
+    meta?: {
+      speakerName?: string;
+      speakerVoice?: string;
+      topic_insight?: string | null;
+      audio_base64?: string | null;
+    }
+  ) => void;
   setMicStatus: (status: MicStatus) => void;
+  setActiveSpeaker: (speaker: ActiveSpeaker) => void;
   setAudioLevel: (level: number) => void;
-  setStage: (stage: DialecticStage) => void;
+  setStage: (stage: DialecticStage | string) => void;
   setComplete: (isComplete: boolean) => void;
   setActiveAudioUrl: (url: string | null) => void;
   setError: (err: string | null) => void;
@@ -36,18 +71,59 @@ interface SparState {
 }
 
 export const useSparStore = create<SparState>((set) => ({
+  user:
+    typeof window !== "undefined"
+      ? (() => {
+          try {
+            const stored = localStorage.getItem("elenchus_auth_user");
+            return stored ? JSON.parse(stored) : null;
+          } catch {
+            return null;
+          }
+        })()
+      : null,
   currentTopic: null,
   sessionId: null,
+  mode: "podcast",
   language: "en-IN",
   stage: "INTRO",
   isComplete: false,
   turns: [],
   micStatus: "idle",
+  activeSpeaker: "idle",
   audioLevel: 0,
   activeAudioUrl: null,
   errorMessage: null,
 
+  setUser: (user) => {
+    if (typeof window !== "undefined") {
+      try {
+        if (user) {
+          localStorage.setItem("elenchus_auth_user", JSON.stringify(user));
+        } else {
+          localStorage.removeItem("elenchus_auth_user");
+        }
+      } catch {
+        // storage unavailable in private browsing
+      }
+    }
+    set({ user });
+  },
+
+  logout: () => {
+    if (typeof window !== "undefined") {
+      try {
+        localStorage.removeItem("elenchus_auth_user");
+      } catch {
+        // ignore
+      }
+    }
+    set({ user: null });
+  },
+
   setCurrentTopic: (topic) => set({ currentTopic: topic }),
+
+  setMode: (mode) => set({ mode }),
 
   setLanguage: (language) => set({ language }),
 
@@ -69,7 +145,7 @@ export const useSparStore = create<SparState>((set) => ({
         : [],
     }),
 
-  addTurn: (role, text, stage) =>
+  addTurn: (role, text, stage, meta) =>
     set((state) => ({
       turns: [
         ...state.turns,
@@ -78,12 +154,18 @@ export const useSparStore = create<SparState>((set) => ({
           text,
           stage: stage || state.stage,
           timestamp: Date.now(),
+          speakerName: meta?.speakerName,
+          speakerVoice: meta?.speakerVoice,
+          topic_insight: meta?.topic_insight,
+          audio_base64: meta?.audio_base64,
         },
       ],
       ...(stage ? { stage } : {}),
     })),
 
   setMicStatus: (micStatus) => set({ micStatus }),
+
+  setActiveSpeaker: (activeSpeaker) => set({ activeSpeaker }),
 
   setAudioLevel: (audioLevel) => set({ audioLevel }),
 
@@ -103,6 +185,7 @@ export const useSparStore = create<SparState>((set) => ({
       isComplete: false,
       turns: [],
       micStatus: "idle",
+      activeSpeaker: "idle",
       audioLevel: 0,
       activeAudioUrl: null,
       errorMessage: null,

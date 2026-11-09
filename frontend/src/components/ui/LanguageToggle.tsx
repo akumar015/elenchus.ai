@@ -32,10 +32,10 @@ export function LanguageToggle({
     <div
       role="radiogroup"
       aria-label="Select Dialectic Sparring Language"
-      className={`inline-flex items-center rounded-lg border border-elenchus-border bg-elenchus-surface-1 p-0.5 select-none ${className}`}
+      className={`inline-flex items-center border border-[#0f0f10]/20 bg-white/80 p-0.5 select-none shadow-2xs ${className}`}
     >
       {showIcon && (
-        <span className="pl-2 pr-1 text-elenchus-muted">
+        <span className="pl-2 pr-1 text-[#0f0f10]/50">
           <Languages className={isSmall ? "w-3 h-3" : "w-3.5 h-3.5"} />
         </span>
       )}
@@ -44,14 +44,14 @@ export function LanguageToggle({
         role="radio"
         aria-checked={language === "en-IN"}
         onClick={() => handleSelect("en-IN")}
-        className={`rounded-md font-mono transition-all duration-150 ${
+        className={`font-mono transition-colors duration-150 ${
           isSmall ? "px-2 py-0.5 text-[10px]" : "px-2.5 py-1 text-xs"
         } ${
           language === "en-IN"
-            ? "bg-elenchus-surface-3 text-elenchus-chalk font-semibold shadow-sm border border-elenchus-border-strong"
-            : "text-elenchus-muted hover:text-elenchus-stone"
+            ? "bg-[#0f0f10] text-[#fbfbf9] font-medium"
+            : "text-[#0f0f10]/60 hover:text-[#0f0f10] hover:bg-white"
         }`}
-        title="Indian English voice (Kaveri)"
+        title="Indian English voice (Kalpana / Avinash)"
       >
         EN
       </button>
@@ -60,16 +60,48 @@ export function LanguageToggle({
         role="radio"
         aria-checked={language === "hi-IN"}
         onClick={() => handleSelect("hi-IN")}
-        className={`rounded-md font-mono transition-all duration-150 ${
+        className={`font-mono transition-colors duration-150 ${
           isSmall ? "px-2 py-0.5 text-[10px]" : "px-2.5 py-1 text-xs"
         } ${
           language === "hi-IN"
-            ? "bg-elenchus-terracotta/20 text-elenchus-terracotta font-semibold shadow-sm border border-elenchus-terracotta/40"
-            : "text-elenchus-muted hover:text-elenchus-stone"
+            ? "bg-[#b8945c] text-[#fbfbf9] font-medium"
+            : "text-[#0f0f10]/60 hover:text-[#0f0f10] hover:bg-white"
         }`}
-        title="Hinglish bilingual voice (Poorvi)"
+        title="Hinglish bilingual voice (Shivani / Avinash)"
       >
-        HINGLISH
+        HI
+      </button>
+      <button
+        type="button"
+        role="radio"
+        aria-checked={language === "pa-IN"}
+        onClick={() => handleSelect("pa-IN")}
+        className={`font-mono transition-colors duration-150 ${
+          isSmall ? "px-2 py-0.5 text-[10px]" : "px-2.5 py-1 text-xs"
+        } ${
+          language === "pa-IN"
+            ? "bg-[#c47335] text-[#fbfbf9] font-medium"
+            : "text-[#0f0f10]/60 hover:text-[#0f0f10] hover:bg-white"
+        }`}
+        title="Punjabi voice (Tarika / Avinash)"
+      >
+        PA
+      </button>
+      <button
+        type="button"
+        role="radio"
+        aria-checked={language === "te-IN"}
+        onClick={() => handleSelect("te-IN")}
+        className={`font-mono transition-colors duration-150 ${
+          isSmall ? "px-2 py-0.5 text-[10px]" : "px-2.5 py-1 text-xs"
+        } ${
+          language === "te-IN"
+            ? "bg-[#3d7a80] text-[#fbfbf9] font-medium"
+            : "text-[#0f0f10]/60 hover:text-[#0f0f10] hover:bg-white"
+        }`}
+        title="Telugu voice (Lakshmi / Avinash)"
+      >
+        TE
       </button>
     </div>
   );

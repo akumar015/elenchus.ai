@@ -2,18 +2,24 @@
 
 import { useEffect, useState, useRef, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
-import Link from "next/link";
 import { useSparStore } from "@/lib/store";
 import { api } from "@/lib/api";
 import { AudioRecorder } from "@/lib/audioRecorder";
 import { STARTER_TOPICS } from "@/lib/starterTopics";
 import { Topic } from "@/types/topic";
-import { DialecticStage, EndSparResponse, SparLanguage } from "@/types/spar";
+import {
+  ActiveSpeaker,
+  DialogueSegmentPayload,
+  DialecticStage,
+  DialecticMode,
+  EndSparResponse,
+} from "@/types/spar";
 import { VoiceOrb } from "@/components/spar/VoiceOrb";
-import { StageProgress } from "@/components/spar/StageProgress";
+import { StudioHeader } from "@/components/spar/StudioHeader";
 import { TranscriptFeed } from "@/components/spar/TranscriptFeed";
 import { AtomicThoughtCard } from "@/components/spar/AtomicThoughtCard";
-import { LanguageToggle } from "@/components/ui/LanguageToggle";
+import { saveThoughtCard } from "@/lib/vaultStorage";
+import { registerActiveAudio, stopAllGlobalAudio } from "@/lib/audioManager";
 import {
   ArrowLeft,
   Send,
@@ -25,24 +31,42 @@ import {
   Sparkles,
 } from "lucide-react";
 
+interface AudioQueueItem {
+  speaker: ActiveSpeaker;
+  blob: Blob;
+}
+
+function base64ToWavBlob(b64: string): Blob {
+  const byteCharacters = atob(b64);
+  const byteNumbers = new Array(byteCharacters.length);
+  for (let i = 0; i < byteCharacters.length; i++) {
+    byteNumbers[i] = byteCharacters.charCodeAt(i);
+  }
+  const byteArray = new Uint8Array(byteNumbers);
+  return new Blob([byteArray], { type: "audio/wav" });
+}
+
 export default function SparringArenaPage() {
   const params = useParams();
   const router = useRouter();
   const topicId = (params?.topic as string) || "";
 
   const {
+    user,
+    mode,
     language,
     sessionId,
     stage,
     turns,
     micStatus,
+    activeSpeaker,
     audioLevel,
     isComplete,
     errorMessage,
-    setLanguage,
     setSession,
     addTurn,
     setMicStatus,
+    setActiveSpeaker,
     setAudioLevel,
     setStage,
     setComplete,
@@ -61,327 +85,623 @@ export default function SparringArenaPage() {
   const recorderRef = useRef<AudioRecorder | null>(null);
   const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
   const initializedRef = useRef<boolean>(false);
+  const isMountedRef = useRef<boolean>(true);
 
-  // Play audio helper
+  // Audio queue cascade refs
+  const audioQueueRef = useRef<AudioQueueItem[]>([]);
+  const isPlayingQueueRef = useRef<boolean>(false);
+  // Atomic kill-switch: set synchronously in stopAudioPlayback, checked first in every cascade callback
+  const isStoppedRef = useRef<boolean>(false);
+  // Push-to-talk recording lifecycle refs (ref-based for synchronous state tracking and zero stale closures)
+  const isSpeakingRef = useRef<boolean>(false);
+  const startPromiseRef = useRef<Promise<void> | null>(null);
+
+  // Helper: Stop all current and queued audio playback immediately
+  const stopAudioPlayback = useCallback(() => {
+    // Set kill-switch FIRST — before any async or React state updates
+    isStoppedRef.current = true;
+    audioQueueRef.current = [];
+    isPlayingQueueRef.current = false;
+    stopAllGlobalAudio();
+    const player = audioPlayerRef.current;
+    if (player) {
+      // Null handlers before pause — prevents onended firing after pause
+      player.onended = null;
+      player.onerror = null;
+      try { player.pause(); } catch {}
+      try { player.currentTime = 0; } catch {}
+      try { player.src = ""; } catch {}
+      audioPlayerRef.current = null;
+    }
+    setActiveSpeaker("idle");
+    setMicStatus("idle");
+  }, [setActiveSpeaker, setMicStatus]);
+
+  // Helper: Exit directly to studio with absolute silence
+  const handleExitToStudio = useCallback(
+    (e?: React.MouseEvent) => {
+      if (e) e.preventDefault();
+      stopAudioPlayback();
+      router.push("/studio");
+    },
+    [router, stopAudioPlayback]
+  );
+
+  // Helper: Play the next segment in the audio cascade queue
+  const playNextInQueue = useCallback(() => {
+    // Kill-switch: bail out immediately if stopped or unmounted
+    if (isStoppedRef.current || !isMountedRef.current || audioMuted || audioQueueRef.current.length === 0) {
+      isPlayingQueueRef.current = false;
+      if (!isStoppedRef.current) {
+        setActiveSpeaker("idle");
+        setMicStatus("idle");
+      }
+      return;
+    }
+
+    const item = audioQueueRef.current.shift()!;
+    setActiveSpeaker(item.speaker);
+    setMicStatus("speaking");
+
+    const url = URL.createObjectURL(item.blob);
+    // Always create a fresh Audio element so we never reuse a paused/nulled one
+    const player = new Audio();
+    audioPlayerRef.current = player;
+    registerActiveAudio(player);
+    player.src = url;
+
+    player.onended = () => {
+      URL.revokeObjectURL(url);
+      if (!isStoppedRef.current) {
+        playNextInQueue();
+      }
+    };
+
+    player.onerror = () => {
+      URL.revokeObjectURL(url);
+      if (!isStoppedRef.current) {
+        playNextInQueue();
+      }
+    };
+
+    player.play().catch((err: unknown) => {
+      console.warn("Autoplay was prevented by browser policy:", err);
+      setAutoplayBlocked(true);
+      setMicStatus("idle");
+      setActiveSpeaker("idle");
+      isPlayingQueueRef.current = false;
+    });
+  }, [audioMuted, setActiveSpeaker, setMicStatus]);
+
+  // Enqueue and play multiple audio segments sequentially
+  const enqueueAndPlayAudio = useCallback(
+    (items: AudioQueueItem[]) => {
+      if (audioMuted || items.length === 0) {
+        setActiveSpeaker("idle");
+        setMicStatus("idle");
+        return;
+      }
+      // Reset kill-switch before starting a new audio cascade
+      isStoppedRef.current = false;
+      audioQueueRef.current = [...items];
+      isPlayingQueueRef.current = true;
+      playNextInQueue();
+    },
+    [audioMuted, playNextInQueue, setActiveSpeaker, setMicStatus]
+  );
+
+  // Single audio blob helper (for Sparring mode)
   const playAudioBlob = useCallback(
     (blob: Blob) => {
-      if (audioMuted) return;
-
-      const url = URL.createObjectURL(blob);
-      if (!audioPlayerRef.current) {
-        audioPlayerRef.current = new Audio();
-      }
-
-      const player = audioPlayerRef.current;
-      player.src = url;
-
-      setMicStatus("speaking");
-
-      player.onended = () => {
-        setMicStatus("idle");
-        URL.revokeObjectURL(url);
-      };
-
-      player.onerror = () => {
-        setMicStatus("idle");
-        URL.revokeObjectURL(url);
-      };
-
-      player.play().catch((err: unknown) => {
-        console.warn("Autoplay was prevented by browser:", err);
-        setAutoplayBlocked(true);
-        setMicStatus("idle");
-      });
+      enqueueAndPlayAudio([{ speaker: "host1", blob }]);
     },
-    [audioMuted, setMicStatus]
+    [enqueueAndPlayAudio]
   );
 
-  // Dynamic language switcher (Phase 5.3)
-  const handleLanguageSwitch = useCallback(
-    async (newLang: SparLanguage) => {
-      if (newLang === language) return;
-      setLanguage(newLang);
-      if (sessionId) {
-        try {
-          await api.updateSessionLanguage(sessionId, newLang);
-        } catch (err: unknown) {
-          console.warn("Failed to sync session language to backend:", err);
+  // Ingest multi-speaker dialogue payload into store and audio queue
+  const ingestDialogueSegments = useCallback(
+    (
+      dialogue: DialogueSegmentPayload[],
+      turnStage: string,
+      topicInsight?: string | null
+    ) => {
+      const queue: AudioQueueItem[] = [];
+
+      dialogue.forEach((seg, idx) => {
+        const isHost1 = seg.speaker === "Host1";
+        const isHost2 = seg.speaker === "Host2";
+        const role = isHost1 ? "HOST1" : isHost2 ? "HOST2" : "AI";
+        const speakerName = isHost1
+          ? language === "hi-IN"
+            ? "Shivani"
+            : language === "pa-IN"
+            ? "Tarika"
+            : language === "te-IN"
+            ? "Lakshmi"
+            : "Kalpana"
+          : isHost2
+          ? "Avinash"
+          : "Elenchus Core";
+
+        addTurn(role, seg.text, turnStage, {
+          speakerName,
+          speakerVoice: seg.voice,
+          topic_insight: idx === 0 ? topicInsight : null,
+          audio_base64: seg.audio_base64,
+        });
+
+        if (seg.audio_base64) {
+          try {
+            const blob = base64ToWavBlob(seg.audio_base64);
+            queue.push({
+              speaker: isHost1 ? "host1" : isHost2 ? "host2" : "idle",
+              blob,
+            });
+          } catch (e) {
+            console.warn("Failed to decode audio segment:", e);
+          }
         }
+      });
+
+      if (queue.length > 0) {
+        enqueueAndPlayAudio(queue);
+      } else {
+        setMicStatus("idle");
+        setActiveSpeaker("idle");
       }
     },
-    [language, sessionId, setLanguage]
+    [addTurn, enqueueAndPlayAudio, language, setActiveSpeaker, setMicStatus]
   );
 
-  // Browser Autoplay Resume Handler (Phase 6.2)
-  const handleResumeAutoplay = useCallback(() => {
-    if (audioPlayerRef.current) {
-      audioPlayerRef.current
-        .play()
-        .then(() => {
-          setAutoplayBlocked(false);
-          setMicStatus("speaking");
-        })
-        .catch(() => setAutoplayBlocked(false));
-    }
-  }, [setMicStatus]);
 
-  // 1. Initialize Topic & Session on Mount
+  // Resume audio if blocked by browser policy
+  const handleResumeAutoplay = () => {
+    if (audioPlayerRef.current) {
+      audioPlayerRef.current.play().then(() => {
+        setAutoplayBlocked(false);
+      });
+    }
+  };
+
+  // 1. Initialize Topic & Session on mount
   useEffect(() => {
+    isMountedRef.current = true;
     if (initializedRef.current) return;
     initializedRef.current = true;
 
     resetSession();
 
-    // Find topic from starters or fetch from API
-    const localTopic = STARTER_TOPICS.find((t) => t.id === topicId);
-    const storedCustom = sessionStorage.getItem(`custom-topic-${topicId}`);
-    if (!localTopic && storedCustom) {
+    // Check session storage for synthesized custom spark topic
+    let foundTopic: Topic | null = null;
     try {
-        setTopic(JSON.parse(storedCustom));
+      const customRaw = sessionStorage.getItem(`custom-topic-${topicId}`);
+      if (customRaw) {
+        foundTopic = JSON.parse(customRaw);
+      }
     } catch {
-    // ignore parse errors
-    }
-}
-    if (localTopic) {
-      setTopic(localTopic);
+      // ignore
     }
 
-    api
-      .getTopic(topicId)
-      .then((t) => {
-        setTopic(t);
-      })
-      .catch(() => {
-        // fallback already set from STARTER_TOPICS
+    if (!foundTopic) {
+      foundTopic = STARTER_TOPICS.find((t) => t.id === topicId) || null;
+    }
+
+    if (foundTopic) {
+      setTopic(foundTopic);
+    } else {
+      setTopic({
+        id: topicId,
+        title: topicId.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
+        category: "Cognitive Inquiry",
+        summary: "Live Dialectic Sparring Session",
+        opening_trap: "State your opening thesis to initiate the dialectic cross-examination.",
       });
+    }
 
-    // Start audio sparring session
+    setLoading(true);
+
+    // Start dialectic session (text/dialogue payload)
     api
-      .startSparAudio(topicId, language)
-      .then(({ sessionId: sid, stage: initialStage, introText, audioBlob }) => {
-        const trapText = introText || localTopic?.opening_trap || "Let us examine your premise.";
-        setSession(sid, trapText);
-        setStage(initialStage);
+      .startSpar(topicId, language, mode, user?.name)
+      .then((res) => {
+        if (!isMountedRef.current) return;
+        setSession(res.session_id, res.intro_text);
         setLoading(false);
-        // Play AI intro audio
-        playAudioBlob(audioBlob);
+
+        if (res.dialogue && res.dialogue.length > 0) {
+          ingestDialogueSegments(res.dialogue, "STUDIO", null);
+        } else {
+          // Sparring mode fallback audio fetch
+          addTurn("AI", res.intro_text, "INTRO");
+          api
+            .startSparAudio(topicId, language, mode)
+            .then((audioRes) => {
+              if (!isMountedRef.current) return;
+              if (audioRes.audioBlob && audioRes.audioBlob.size > 0) {
+                playAudioBlob(audioRes.audioBlob);
+              }
+            })
+            .catch(() => {});
+        }
       })
       .catch((err) => {
-        console.warn("Audio start fallback to text mode:", err);
-        // Fallback to text start if audio fails or rate limited
-        api
-          .startSpar(topicId, language)
-          .then((res) => {
-            setSession(res.session_id, res.intro_text);
-            setLoading(false);
-          })
-          .catch((startErr: unknown) => {
-            const msg = startErr instanceof Error ? startErr.message : "Could not connect to Socratic Engine";
-            setError(msg);
-            setLoading(false);
-          });
+        if (!isMountedRef.current) return;
+        console.error("Failed to start session:", err);
+        setError(err instanceof Error ? err.message : "Failed to initiate session.");
+        setLoading(false);
       });
+
+    // Init Audio Recorder
+    const recorder = new AudioRecorder({
+      onVolumeChange: (vol) => {
+        setAudioLevel(vol);
+      },
+    });
+
+    recorderRef.current = recorder;
 
     return () => {
-      if (audioPlayerRef.current) {
-        audioPlayerRef.current.pause();
-        audioPlayerRef.current = null;
+      isMountedRef.current = false;
+      stopAudioPlayback();
+      if (recorderRef.current) {
+        recorderRef.current.stop().catch(() => {});
       }
     };
-  }, [topicId, language, resetSession, setSession, setStage, setError, playAudioBlob]);
+  }, [
+    topicId,
+    language,
+    mode,
+    user?.name,
+    resetSession,
+    setSession,
+    setLoading,
+    setError,
+    setAudioLevel,
+    stopAudioPlayback,
+    ingestDialogueSegments,
+    addTurn,
+    playAudioBlob,
+  ]);
 
-  // 2. Voice Push-to-Talk Handlers
-  const handleStartSpeaking = useCallback(async () => {
-    if (micStatus === "thinking" || micStatus === "speaking") return;
-    if (!sessionId) {
-      setError("Waiting for dialectic session to initialize...");
-      return;
-    }
+  // Stop playback on browser back/forward or page unload
+  useEffect(() => {
+    const handleNav = () => {
+      stopAudioPlayback();
+      stopAllGlobalAudio();
+    };
+    window.addEventListener("popstate", handleNav);
+    window.addEventListener("pagehide", handleNav);
+    window.addEventListener("beforeunload", handleNav);
+    return () => {
+      window.removeEventListener("popstate", handleNav);
+      window.removeEventListener("pagehide", handleNav);
+      window.removeEventListener("beforeunload", handleNav);
+    };
+  }, [stopAudioPlayback]);
 
-    try {
-      if (audioPlayerRef.current) {
-        audioPlayerRef.current.pause();
+  // 2. Instant Live Interruption & Push-to-Talk Handling
+  const triggerStopSpeaking = useCallback(async () => {
+    if (!recorderRef.current) return;
+
+    // If start() is still resolving getUserMedia / audioContext, wait for it
+    if (startPromiseRef.current) {
+      try {
+        await startPromiseRef.current;
+      } catch {
+        return;
       }
-
-      recorderRef.current = new AudioRecorder({
-        onVolumeChange: (rms) => setAudioLevel(rms),
-      });
-
-      await recorderRef.current.start();
-      setMicStatus("listening");
-      setError(null);
-    } catch (err: unknown) {
-      console.error("Mic access failed:", err);
-      setError("Microphone unavailable or blocked. Switching to text rebuttal below.");
-      setMicStatus("idle");
-      setTimeout(() => textInputRef.current?.focus(),100);
     }
-  }, [micStatus, sessionId, setAudioLevel, setError, setMicStatus]);
 
-  const handleStopSpeaking = useCallback(async () => {
-    if (micStatus !== "listening" || !recorderRef.current) return;
+    setMicStatus("thinking");
+    setActiveSpeaker("idle");
 
     try {
       const audioBlob = await recorderRef.current.stop();
-      recorderRef.current = null;
-      setMicStatus("thinking");
-      
+      if (!audioBlob || audioBlob.size < 1000) {
+        setMicStatus("idle");
+        return;
+      }
+
       if (!sessionId) {
-        throw new Error("No active session ID. Please refresh to re-initialize.");
+        setMicStatus("idle");
+        return;
       }
 
-      // Submit voice turn to FastAPI backend with active language
-      const response = await api.sendTurnAudio(sessionId, audioBlob, language);
+      const res = await api.sendTurnAudio(sessionId, audioBlob, language);
 
-      // Add turns to transcript feed
-      addTurn("USER", response.userTranscript, response.stage);
-      addTurn("AI", response.aiResponse, response.stage);
-      setStage(response.stage);
+      // Ingest user transcript
+      addTurn("USER", res.userTranscript);
+      setStage(res.stage);
+      setComplete(res.isComplete);
 
-      if (response.isComplete) {
-        setComplete(true);
+      if (res.dialogue && res.dialogue.length > 0) {
+        // Multi-speaker Podcast Turn
+        ingestDialogueSegments(res.dialogue, res.stage, res.topic_insight);
+      } else {
+        // Socratic Sparring Turn (1-on-1)
+        addTurn("AI", res.aiResponse, res.stage);
+        if (res.audioBlob && res.audioBlob.size > 0) {
+          playAudioBlob(res.audioBlob);
+        } else {
+          setMicStatus("idle");
+        }
       }
-
-      // Play AI voice response
-      playAudioBlob(response.audioBlob);
     } catch (err: unknown) {
-      console.error("Voice turn error:", err);
-      const msg = err instanceof Error ? err.message : "Failed to process voice turn. Try again.";
+      console.warn("Spoken turn aborted or too short:", err);
+      const msg = err instanceof Error ? err.message : "Error exchanging spoken turn";
+      // If user tapped or held too briefly, quietly return to idle without jarring red error
+      if (msg.includes("too short")) {
+        setMicStatus("idle");
+        setActiveSpeaker("idle");
+        return;
+      }
       setError(msg);
       setMicStatus("idle");
+      setActiveSpeaker("idle");
     }
-  }, [micStatus, sessionId, language, addTurn, setStage, setComplete, playAudioBlob, setError, setMicStatus]);
+  }, [
+    sessionId,
+    language,
+    addTurn,
+    setStage,
+    setComplete,
+    ingestDialogueSegments,
+    playAudioBlob,
+    setError,
+    setMicStatus,
+    setActiveSpeaker,
+  ]);
 
-  // 3. Text Turn Handler (Fallback / Accessibility)
-  const handleTextSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!textInput.trim() || micStatus === "thinking") return;
+  const handleStartSpeaking = useCallback(async () => {
+    if (isSpeakingRef.current || loading || isComplete || !recorderRef.current) return;
 
-    if (!sessionId) {
-      setError("Waiting for dialectic session to initialize. Please wait a second.");
+    // Synchronous guard flag
+    isSpeakingRef.current = true;
+
+    // Instant Interruption Affordance:
+    // Instantly halt host audio playback and flush the remaining cascade queue
+    stopAudioPlayback();
+
+    setActiveSpeaker("user");
+    setMicStatus("listening");
+
+    const promise = recorderRef.current.start();
+    startPromiseRef.current = promise;
+
+    try {
+      await promise;
+    } catch (err: unknown) {
+      console.error("Microphone activation failed:", err);
+      isSpeakingRef.current = false;
+      startPromiseRef.current = null;
+      setActiveSpeaker("idle");
+      setMicStatus("error");
+      setError("Could not activate microphone. Check browser permissions.");
       return;
     }
+
+    startPromiseRef.current = null;
+
+    // Edge case: User released Spacebar / button WHILE start() was initializing
+    if (!isSpeakingRef.current) {
+      triggerStopSpeaking();
+    }
+  }, [loading, isComplete, stopAudioPlayback, setActiveSpeaker, setMicStatus, setError, triggerStopSpeaking]);
+
+  const handleStopSpeaking = useCallback(() => {
+    if (!isSpeakingRef.current) return;
+    isSpeakingRef.current = false;
+    triggerStopSpeaking();
+  }, [triggerStopSpeaking]);
+
+  // 3. Fallback Text Rebuttal Handling
+  const handleTextSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!textInput.trim() || loading || !sessionId || micStatus === "thinking") return;
 
     const userText = textInput.trim();
     setTextInput("");
-    setMicStatus("thinking");
-    setError(null);
 
-    // Add user turn immediately
-    addTurn("USER", userText, stage);
+    // Stop host playback if active
+    audioQueueRef.current = [];
+    isPlayingQueueRef.current = false;
+    if (audioPlayerRef.current) {
+      audioPlayerRef.current.pause();
+    }
+
+    addTurn("USER", userText);
+    setMicStatus("thinking");
+    setActiveSpeaker("idle");
 
     try {
-      const response = await api.sendTurnText(sessionId, userText, language);
-      addTurn("AI", response.ai_response, response.stage);
-      setStage(response.stage as DialecticStage);
+      const res = await api.sendTurnText(sessionId, userText, language);
 
-      if (response.is_complete) {
-        setComplete(true);
+      setStage(res.stage);
+      setComplete(res.is_complete);
+
+      if (res.dialogue && res.dialogue.length > 0) {
+        ingestDialogueSegments(res.dialogue, res.stage, res.topic_insight);
+      } else {
+        addTurn("AI", res.ai_response, res.stage);
+        setMicStatus("idle");
       }
-
-      setMicStatus("idle");
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Turn failed. Please try again.";
-      setError(msg);
+      console.error("Text rebuttal error:", err);
+      setError("Failed to transmit text rebuttal.");
       setMicStatus("idle");
+      setActiveSpeaker("idle");
     }
   };
 
-  // 4. End Session Handler
+  // 4. End Session & Synthesize Thought Card
   const handleEndSession = async () => {
     if (!sessionId) {
-      router.push("/");
+      router.push("/studio");
       return;
     }
+
+    // Stop playback
+    stopAudioPlayback();
+
+    setLoading(true);
     try {
       const summary = await api.endSpar(sessionId);
       setSessionEndedSummary(summary);
+      if (summary.thought_card) {
+        saveThoughtCard(
+          {
+            topicId,
+            topicTitle: topic?.title || topicId,
+            category: topic?.category,
+            mode: (mode as DialecticMode) || "podcast",
+            language,
+            totalTurns: summary.total_turns,
+            finalStage: summary.final_stage,
+            card: summary.thought_card,
+          },
+          user?.email || user?.sub || null,
+        );
+      }
+      setComplete(true);
     } catch (err: unknown) {
-      console.error("End session failed:", err);
-      router.push("/");
+      console.warn("End spar error, using fallback synthesis:", err);
+      const fallbackSummary: EndSparResponse = {
+        session_id: sessionId,
+        topic_id: topicId,
+        total_turns: turns.length,
+        final_stage: (stage as DialecticStage) || "WRAP",
+        language,
+        history: turns.map((t) => ({
+          role: t.role === "USER" ? "USER" : "AI",
+          text: t.text,
+        })),
+        thought_card: {
+          core_thesis: topic?.summary || "Dialectical inquiry",
+          user_stance:
+            turns.filter((t) => t.role === "USER").pop()?.text ||
+            "Premise submitted during discussion",
+          blind_spots: "Premise examined across causal edge-cases.",
+          key_insight: "Clarity distilled through real-time dialectical friction.",
+        },
+      };
+      setSessionEndedSummary(fallbackSummary);
+      if (fallbackSummary.thought_card) {
+        saveThoughtCard(
+          {
+            topicId,
+            topicTitle: topic?.title || topicId,
+            category: topic?.category,
+            mode: (mode as DialecticMode) || "podcast",
+            language,
+            totalTurns: fallbackSummary.total_turns,
+            finalStage: fallbackSummary.final_stage,
+            card: fallbackSummary.thought_card,
+          },
+          user?.email || user?.sub || null,
+        );
+      }
+      setComplete(true);
+    } finally {
+      setLoading(false);
     }
   };
 
-  // 5. Global Keyboard Spacebar Listener (Push-to-Talk)
+  // Keyboard shortcut: Spacebar push-to-talk
   useEffect(() => {
+    const isInputElement = (el: EventTarget | null): boolean => {
+      if (!el || !(el instanceof HTMLElement)) return false;
+      const tag = el.tagName.toLowerCase();
+      return (
+        tag === "input" ||
+        tag === "textarea" ||
+        tag === "select" ||
+        el.isContentEditable
+      );
+    };
+
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (
-        e.code === "Space" &&
-        !e.repeat &&
-        document.activeElement?.tagName !== "INPUT" &&
-        document.activeElement?.tagName !== "TEXTAREA"
-      ) {
+      if (e.code === "Space") {
+        if (isInputElement(e.target)) return;
+        // Always prevent page scrolling on Spacebar
         e.preventDefault();
+        // Ignore OS repeated keydown events while holding Spacebar
+        if (e.repeat) return;
         handleStartSpeaking();
       }
     };
 
     const handleKeyUp = (e: KeyboardEvent) => {
-      if (
-        e.code === "Space" &&
-        document.activeElement?.tagName !== "INPUT" &&
-        document.activeElement?.tagName !== "TEXTAREA"
-      ) {
+      if (e.code === "Space") {
+        if (isInputElement(e.target)) return;
         e.preventDefault();
         handleStopSpeaking();
       }
     };
 
+    const handleWindowBlur = () => {
+      // Safety: If user Alt-Tabs or window loses focus while holding Space, release mic
+      handleStopSpeaking();
+    };
+
     window.addEventListener("keydown", handleKeyDown);
     window.addEventListener("keyup", handleKeyUp);
+    window.addEventListener("blur", handleWindowBlur);
 
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
       window.removeEventListener("keyup", handleKeyUp);
+      window.removeEventListener("blur", handleWindowBlur);
     };
   }, [handleStartSpeaking, handleStopSpeaking]);
 
   return (
-    <div className="min-h-screen flex flex-col bg-elenchus-ground text-elenchus-chalk">
-      {/* Top Sparring Arena Navigation Bar */}
-      <nav className="border-b border-elenchus-border bg-elenchus-surface-1/70 backdrop-blur-md px-4 sm:px-8 py-3.5 flex items-center justify-between gap-4">
-        <Link
-          href="/"
-          className="inline-flex items-center gap-2 font-mono text-xs uppercase tracking-wider text-elenchus-stone hover:text-elenchus-chalk transition-colors shrink-0"
+    <div className="min-h-screen flex flex-col bg-[#fbfbf9] text-[#0f0f10] selection:bg-[#0f0f10]/12 antialiased">
+      {/* 1. Top Studio/Arena Navigation Bar */}
+      <nav className="border-b border-[#0f0f10]/10 bg-[#fbfbf9]/90 backdrop-blur-md px-4 sm:px-8 py-3.5 flex items-center justify-between gap-4 sticky top-0 z-40">
+        <button
+          type="button"
+          onClick={handleExitToStudio}
+          className="inline-flex items-center gap-2 font-mono text-xs uppercase tracking-wider text-[#0f0f10]/70 hover:text-[#0f0f10] hover:scale-105 transition-all duration-200 shrink-0 cursor-pointer"
         >
           <ArrowLeft className="w-3.5 h-3.5" />
-          <span>Exit Arena</span>
-        </Link>
+          <span>Exit to Studio</span>
+        </button>
 
-        {/* Center Topic Title & Session State */}
+        {/* Center Topic Title & Live Badge */}
         <div className="flex items-center gap-3 truncate">
-          <span className="font-serif font-bold text-base sm:text-lg text-elenchus-chalk tracking-tight truncate max-w-xs sm:max-w-md">
-            {topic?.title || "Socratic Duel"}
+          <span className="font-serif font-semibold text-base sm:text-lg text-[#0f0f10] tracking-tight truncate max-w-xs sm:max-w-md">
+            {topic?.title || (mode === "podcast" ? "Podcast Studio Roundtable" : "Socratic Duel")}
           </span>
           {sessionId ? (
-            <span className="hidden sm:inline-block font-mono text-[10px] uppercase px-2 py-0.5 rounded-full border border-elenchus-emerald/30 bg-elenchus-emerald/10 text-emerald-400 shrink-0">
-              ACTIVE DUEL
+            <span className="hidden sm:inline-block font-mono text-[10px] uppercase px-2.5 py-0.5 rounded-md bg-emerald-500/10 text-emerald-800 shrink-0 font-medium shadow-xs">
+              {mode === "podcast" ? "ROUNDTABLE LIVE" : "ACTIVE DUEL"}
             </span>
           ) : (
-            <span className="hidden sm:inline-block font-mono text-[10px] uppercase px-2 py-0.5 rounded-full border border-elenchus-amber/30 bg-elenchus-amber/10 text-elenchus-amber animate-pulse shrink-0">
-              INITIALIZING...
+            <span className="hidden sm:inline-block font-mono text-[10px] uppercase px-2.5 py-0.5 rounded-md bg-[#b8945c]/10 text-[#b8945c] animate-pulse shrink-0 font-medium">
+              CONNECTING...
             </span>
           )}
         </div>
 
-        {/* Right Session Actions & Language Switcher */}
+        {/* Right Session Actions */}
         <div className="flex items-center gap-2.5 sm:gap-3 shrink-0">
-          <LanguageToggle size="sm" onLanguageChange={handleLanguageSwitch} />
-
           <button
+            type="button"
             onClick={() => setAudioMuted(!audioMuted)}
-            className="p-1.5 rounded-md border border-elenchus-border bg-elenchus-surface-2 text-elenchus-stone hover:text-elenchus-chalk"
-            title={audioMuted ? "Unmute AI voice" : "Mute AI voice"}
+            className="p-2 rounded-lg bg-[#0f0f10]/[0.05] text-[#0f0f10]/70 hover:text-[#0f0f10] hover:scale-105 transition-all duration-200 shadow-xs"
+            title={audioMuted ? "Unmute dialogue audio" : "Mute dialogue audio"}
           >
             {audioMuted ? (
-              <VolumeX className="w-4 h-4 text-elenchus-crimson" />
+              <VolumeX className="w-4 h-4 text-rose-600" />
             ) : (
               <Volume2 className="w-4 h-4" />
             )}
           </button>
+
           <button
+            type="button"
             onClick={handleEndSession}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-elenchus-crimson/30 bg-elenchus-crimson/10 font-mono text-xs uppercase tracking-wider text-elenchus-crimson hover:bg-elenchus-crimson hover:text-white transition-all"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-500/10 font-mono text-xs uppercase tracking-wider text-rose-700 hover:bg-rose-600 hover:text-white hover:scale-105 transition-all duration-200 shadow-xs"
           >
             <Flag className="w-3 h-3" />
             <span className="hidden sm:inline">Conclude</span>
@@ -389,16 +709,17 @@ export default function SparringArenaPage() {
         </div>
       </nav>
 
-      {/* Browser Autoplay Interceptor Banner (Phase 6.2) */}
+      {/* Browser Autoplay Interceptor Banner */}
       {autoplayBlocked && (
-        <div className="bg-elenchus-surface-2 border-b border-elenchus-terracotta/40 px-4 py-2.5 flex items-center justify-between text-xs font-mono text-elenchus-chalk">
+        <div className="bg-white/95 border-b border-[#b8945c]/30 px-4 py-2.5 flex items-center justify-between text-xs font-mono text-[#0f0f10] shadow-2xs">
           <div className="flex items-center gap-2">
-            <Volume2 className="w-4 h-4 text-elenchus-terracotta animate-pulse" />
-            <span>Browser paused AI voice output. Tap to hear adversary.</span>
+            <Volume2 className="w-4 h-4 text-[#b8945c] animate-pulse" />
+            <span>Browser paused conversational audio. Click to hear interlocutors.</span>
           </div>
           <button
+            type="button"
             onClick={handleResumeAutoplay}
-            className="px-3 py-1 rounded bg-elenchus-terracotta text-white font-semibold hover:bg-elenchus-terracotta-hover transition-colors"
+            className="px-3 py-1 border border-[#0f0f10] bg-[#0f0f10] text-[#fbfbf9] font-medium hover:bg-neutral-800 transition-colors shadow-2xs"
           >
             Play Voice
           </button>
@@ -407,50 +728,75 @@ export default function SparringArenaPage() {
 
       {/* Optional Error Alert Banner */}
       {errorMessage && (
-        <div className="bg-elenchus-crimson/10 border-b border-elenchus-crimson/30 px-4 py-2.5 flex items-center justify-between text-xs font-mono text-elenchus-crimson">
+        <div className="bg-rose-50 border-b border-rose-200 px-4 py-2.5 flex items-center justify-between text-xs font-mono text-rose-700">
           <div className="flex items-center gap-2">
             <AlertCircle className="w-4 h-4" />
             <span>{errorMessage}</span>
           </div>
           <button
+            type="button"
             onClick={() => setError(null)}
-            className="p-1 hover:text-white"
+            className="p-1 hover:text-black"
           >
             <X className="w-3.5 h-3.5" />
           </button>
         </div>
       )}
 
-      {/* Main Dialectic Split View */}
+      {/* 2. Main Dialectic Workspace Split View */}
       <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 grid grid-cols-1 lg:grid-cols-12 gap-6 min-h-0">
-        {/* Left Column: Stage Progress & Transcript Feed (7 cols) */}
-        <section className="lg:col-span-7 flex flex-col h-[65vh] lg:h-[calc(100vh-140px)] rounded-xl border border-elenchus-border bg-elenchus-surface-1/40 p-4 sm:p-6 space-y-6">
-          <StageProgress currentStage={stage} turnCount={turns.length} />
+        {/* Left Column: Live Presence Bar & Transcript Feed (7 cols) */}
+        <section className="lg:col-span-7 flex flex-col h-[65vh] lg:h-[calc(100vh-140px)] border border-[#0f0f10]/12 bg-white/60 backdrop-blur-md p-4 sm:p-6 space-y-6 shadow-2xs">
+          <StudioHeader
+            mode={mode}
+            language={language}
+            activeSpeaker={activeSpeaker}
+            userName={user?.name}
+            topicTitle={topic?.title}
+            turnCount={turns.length}
+          />
           <div className="flex-1 overflow-hidden">
             <TranscriptFeed
               turns={turns}
               isThinking={micStatus === "thinking"}
+              mode={mode}
             />
           </div>
         </section>
 
-        {/* Right Column: Voice Orb Sparring Deck (5 cols) */}
-        <section className="lg:col-span-5 flex flex-col justify-between rounded-xl border border-elenchus-border bg-elenchus-surface-1/60 p-6 sm:p-8 space-y-6">
-          {/* Top Dialectic Status Indicator with Code-Switching Switcher */}
+        {/* Right Column: Voice Orb & Interactive Desk (5 cols) */}
+        <section className="lg:col-span-5 flex flex-col justify-between border border-[#0f0f10]/12 bg-white/80 backdrop-blur-md p-6 sm:p-8 space-y-6 shadow-2xs">
+          {/* Top Dialectic Status Indicator */}
           <div className="space-y-3">
-            <div className="flex items-center justify-between border-b border-elenchus-border pb-3">
+            <div className="flex items-center justify-between border-b border-[#0f0f10]/10 pb-3">
               <div className="space-y-0.5">
-                <span className="font-mono text-[10px] uppercase tracking-wider text-elenchus-muted">
-                  Voice Core & Engine
+                <span className="font-mono text-[10px] uppercase tracking-wider text-[#0f0f10]/50">
+                  {mode === "podcast" ? "Studio Control Desk" : "Voice Core & Engine"}
                 </span>
-                <p className="font-mono text-xs font-semibold text-elenchus-terracotta">
-                  {language === "hi-IN" ? "HINGLISH · POORVI" : "INDIAN ENGLISH · KAVERI"}
+                <p className="font-mono text-xs font-semibold text-[#b8945c]">
+                  {language === "hi-IN"
+                    ? "HINGLISH · SHIVANI & AVINASH"
+                    : language === "pa-IN"
+                    ? "PUNJABI · TARIKA & AVINASH"
+                    : language === "te-IN"
+                    ? "TELUGU · LAKSHMI & AVINASH"
+                    : "INDIAN ENGLISH · KALPANA & AVINASH"}
                 </p>
               </div>
-              <LanguageToggle size="sm" onLanguageChange={handleLanguageSwitch} />
+              <span className="font-mono text-[10px] uppercase px-2 py-0.5 rounded-md bg-[#0f0f10]/[0.04] text-[#0f0f10]/60 font-medium">
+                {language === "hi-IN"
+                  ? "Hinglish (Shivani)"
+                  : language === "pa-IN"
+                  ? "Punjabi (Tarika)"
+                  : language === "te-IN"
+                  ? "Telugu (Lakshmi)"
+                  : "English (Kalpana)"}
+              </span>
             </div>
-            <p className="text-xs text-elenchus-stone leading-relaxed">
-              Hold the core to speak, or hold <kbd className="px-1.5 py-0.5 rounded bg-elenchus-surface-3 font-mono text-[10px] text-elenchus-chalk">SPACE</kbd>. Release when you have stated your premise.
+            <p className="text-xs text-[#0f0f10]/70 leading-relaxed font-normal">
+              {mode === "podcast"
+                ? "Hold the core or SPACE to weigh in. Tap at any time to interrupt the hosts and state your counter-premise."
+                : "Hold the core to speak, or hold SPACE. Release when you have stated your premise."}
             </p>
           </div>
 
@@ -462,13 +808,16 @@ export default function SparringArenaPage() {
               onPressStart={handleStartSpeaking}
               onPressEnd={handleStopSpeaking}
               disabled={loading || isComplete || !sessionId}
+              activeSpeaker={activeSpeaker}
+              mode={mode}
+              language={language}
             />
           </div>
 
           {/* Text Fallback Rebuttal Input */}
           <form
             onSubmit={handleTextSubmit}
-            className="flex items-center gap-2 pt-4 border-t border-elenchus-border"
+            className="flex items-center gap-2 pt-4 border-t border-[#0f0f10]/10"
           >
             <input
               ref={textInputRef}
@@ -479,16 +828,22 @@ export default function SparringArenaPage() {
                 sessionId
                   ? language === "hi-IN"
                     ? "Apna counter-argument yahan type karo..."
+                    : language === "pa-IN"
+                    ? "ਆਪਣਾ counter-argument ਇੱਥੇ ਲਿਖੋ..."
+                    : language === "te-IN"
+                    ? "మీ counter-argument ఇక్కడ టైప్ చేయండి..."
+                    : mode === "podcast"
+                    ? "Weigh into the roundtable in text..."
                     : "Or type your counter-argument here..."
-                  : "Connecting to Socratic Arena..."
+                  : "Connecting to Dialectic Core..."
               }
               disabled={loading || micStatus === "thinking" || !sessionId}
-              className="flex-1 px-4 py-2.5 rounded-lg bg-elenchus-ground border border-elenchus-border text-elenchus-chalk placeholder:text-elenchus-muted font-sans text-xs focus:border-elenchus-terracotta transition-colors disabled:opacity-50"
+              className="flex-1 px-4 py-2.5 bg-[#0f0f10]/[0.04] rounded-xl text-[#0f0f10] placeholder:text-[#0f0f10]/40 font-sans text-xs focus:outline-none focus:ring-1 focus:ring-[#b8945c] focus:bg-white transition-all disabled:opacity-50 shadow-xs"
             />
             <button
               type="submit"
               disabled={!textInput.trim() || micStatus === "thinking" || !sessionId}
-              className="p-2.5 rounded-lg bg-elenchus-surface-2 border border-elenchus-border text-elenchus-chalk hover:bg-elenchus-terracotta hover:border-elenchus-terracotta transition-colors disabled:opacity-40"
+              className="p-2.5 rounded-xl bg-[#b8945c] hover:bg-[#a07e4a] text-white hover:scale-105 transition-all disabled:opacity-40 shadow-xs"
               title="Submit text rebuttal"
             >
               <Send className="w-4 h-4" />
@@ -497,65 +852,88 @@ export default function SparringArenaPage() {
         </section>
       </main>
 
-      {/* Session Completion / Ambient Scribe Modal */}
+      {/* 3. Session Completion / Ambient Scribe Modal */}
       {sessionEndedSummary && (
-        <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto">
-          <div className="max-w-2xl w-full rounded-2xl border border-elenchus-border bg-elenchus-surface-1 p-6 sm:p-8 space-y-6 shadow-2xl my-8">
-            <div className="flex items-start justify-between gap-4">
+        <div className="fixed inset-0 z-50 bg-[#0f0f10]/40 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto animate-fadeIn">
+          <div className="max-w-2xl w-full rounded-2xl bg-[#fbfbf9] p-6 sm:p-8 space-y-6 shadow-2xl my-8 text-[#0f0f10]">
+            <div className="flex items-start justify-between gap-4 border-b border-[#0f0f10]/10 pb-4">
               <div className="space-y-1">
-                <span className="font-mono text-xs uppercase tracking-widest text-elenchus-emerald flex items-center gap-1.5">
-                  <Sparkles className="w-3.5 h-3.5" />
-                  <span>Sparring Duel Concluded</span>
+                <span className="font-mono text-xs uppercase tracking-widest text-emerald-700 flex items-center gap-1.5 font-medium">
+                  <Sparkles className="w-3.5 h-3.5 text-[#b8945c]" />
+                  <span>
+                    {mode === "podcast" ? "Roundtable Concluded" : "Sparring Duel Concluded"}
+                  </span>
                 </span>
-                <h3 className="font-serif text-2xl sm:text-3xl text-elenchus-chalk font-bold">
+                <h3 className="font-serif text-2xl sm:text-3xl text-[#0f0f10] font-semibold tracking-tight">
                   Post-Debate Synthesis
                 </h3>
               </div>
               <button
+                type="button"
                 onClick={() => setSessionEndedSummary(null)}
-                className="p-1 rounded-md text-elenchus-muted hover:text-elenchus-chalk"
+                className="p-2 rounded-lg bg-[#0f0f10]/[0.05] hover:bg-[#0f0f10]/10 text-[#0f0f10] hover:scale-105 transition-all"
               >
-                <X className="w-5 h-5" />
+                <X className="w-4 h-4" />
               </button>
             </div>
 
-            {/* Atomic Thought Card Component (Phase 4.4 & 4.5) */}
+            {/* Atomic Thought Card Component */}
             {sessionEndedSummary.thought_card && (
-              <div className="rounded-xl border border-elenchus-border bg-elenchus-surface-2/40 p-5">
+              <div className="border border-[#0f0f10]/10 bg-white/70 p-5 shadow-2xs">
                 <AtomicThoughtCard
                   card={sessionEndedSummary.thought_card}
                   topicTitle={topic?.title}
+                  topicId={topicId}
                   totalTurns={sessionEndedSummary.total_turns}
                   finalStage={sessionEndedSummary.final_stage}
                   language={sessionEndedSummary.language}
+                  mode={(mode as DialecticMode) || "podcast"}
+                  isSaved={true}
                 />
               </div>
             )}
 
             {/* Session Telemetry Strip */}
-            <div className="grid grid-cols-3 gap-3 rounded-lg border border-elenchus-border bg-elenchus-ground p-3.5 font-mono text-xs">
+            <div className="grid grid-cols-3 gap-3 border border-[#0f0f10]/10 bg-white/80 p-4 font-mono text-xs shadow-2xs">
               <div className="space-y-0.5">
-                <span className="text-[10px] uppercase text-elenchus-muted">Total Volleys</span>
-                <p className="text-elenchus-chalk font-semibold">{sessionEndedSummary.total_turns}</p>
+                <span className="text-[10px] uppercase text-[#0f0f10]/50 tracking-wider">
+                  Total Beats
+                </span>
+                <p className="text-[#0f0f10] font-semibold">
+                  {sessionEndedSummary.total_turns}
+                </p>
               </div>
               <div className="space-y-0.5">
-                <span className="text-[10px] uppercase text-elenchus-muted">Final Depth</span>
-                <p className="text-elenchus-terracotta font-semibold">{sessionEndedSummary.final_stage}</p>
+                <span className="text-[10px] uppercase text-[#0f0f10]/50 tracking-wider">
+                  Modality
+                </span>
+                <p className="text-[#b8945c] font-semibold">
+                  {mode === "podcast" ? "Podcast Studio" : "Sparring Arena"}
+                </p>
               </div>
               <div className="space-y-0.5">
-                <span className="text-[10px] uppercase text-elenchus-muted">Language</span>
-                <p className="text-elenchus-stone font-semibold">
-                  {sessionEndedSummary.language === "hi-IN" ? "Hinglish (Poorvi)" : "English (Kaveri)"}
+                <span className="text-[10px] uppercase text-[#0f0f10]/50 tracking-wider">
+                  Language
+                </span>
+                <p className="text-[#0f0f10]/80 font-semibold">
+                  {sessionEndedSummary.language === "hi-IN"
+                    ? "Hinglish (Shivani)"
+                    : sessionEndedSummary.language === "pa-IN"
+                    ? "Punjabi (Tarika)"
+                    : sessionEndedSummary.language === "te-IN"
+                    ? "Telugu (Lakshmi)"
+                    : "English (Kalpana)"}
                 </p>
               </div>
             </div>
 
-            <div className="flex gap-3">
+            <div className="flex gap-3 pt-2">
               <button
-                onClick={() => router.push("/")}
-                className="flex-1 py-3 rounded-lg bg-elenchus-terracotta hover:bg-elenchus-terracotta-hover text-white font-mono text-xs uppercase tracking-wider font-semibold transition-all"
+                type="button"
+                onClick={handleExitToStudio}
+                className="flex-1 py-3 rounded-xl bg-[#b8945c] hover:bg-[#a07e4a] text-white hover:scale-[1.02] active:scale-[0.98] font-mono text-xs uppercase tracking-wider font-medium transition-all shadow-xs"
               >
-                Return to Daily Drops
+                Return to Studio Hub
               </button>
             </div>
           </div>

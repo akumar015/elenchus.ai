@@ -1,19 +1,101 @@
-# Python-generated files
-__pycache__/
-*.py[oc]
-build/
-dist/
-wheels/
-*.egg-info
+# ==============================================================================
+# Environment & Sensitive Credentials (CRITICAL: NEVER COMMIT TO GIT)
+# ==============================================================================
+.env
+.env.*
+!.env.example
+*.env
+auth-client.json
+*client_secret*.json
+credentials.json
+service-account*.json
+*.pem
+*.key
 
-# Virtual environments
-.venv
-.env  
-idea.md
-elenchus-build-plan.md
-gsd-template/
+# ==============================================================================
+# Python & Virtual Environments
+# ==============================================================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+.pytest_cache/
+.coverage
+htmlcov/
+
+.venv/
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# ==============================================================================
+# Node.js & Next.js Builds
+# ==============================================================================
+node_modules/
+frontend/node_modules/
+.next/
+frontend/.next/
+out/
+frontend/out/
+*.tsbuildinfo
+next-env.d.ts
+
+# ==============================================================================
+# Logs & Process Outputs
+# ==============================================================================
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ==============================================================================
+# Temporary Audio/Video Recordings & Processing
+# ==============================================================================
+*.wav
 test_input.wav
 test_output.wav
-test_audio_loop.py 
+
+# ==============================================================================
+# OS & Editor Specific
+# ==============================================================================
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# ==============================================================================
+# Agent Scratch, Plans & Experimental Artifacts
+# ==============================================================================
+.agents/
+.gemini/
+.gravitas/
+scratch/
+test_scripts/
+prototype/
 gsd-template/
+skills-lock.json
+idea.md
+elenchus-build-plan.md
 phase-wise-implementation-plan.md

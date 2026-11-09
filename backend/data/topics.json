@@ -54,5 +54,12 @@
     "category": "Systems Thinking",
     "summary": "When a measure becomes a target, it ceases to be a good measure. The metric that was tracking real value starts being optimized directly, hollowing out the underlying thing it was meant to represent.",
     "opening_trap": "If a school is judged by its exam pass rate, and it starts teaching only to the exam — is it still a school?"
+  },
+  {
+    "id": "chestertons-fence",
+    "title": "Chesterton's Fence",
+    "category": "Philosophy",
+    "summary": "Reforms should not be made until the reasoning behind the existing state of affairs is understood. If you don't see the use of a fence across a road, that is the exact reason you should not tear it down.",
+    "opening_trap": "If you encounter a legacy rule whose original justification nobody can explain, is it progress to abolish it or reckless hubris?"
   }
 ]

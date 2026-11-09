@@ -65,16 +65,16 @@ export function DailyDropGrid() {
           </p>
         </div>
 
-        {/* Category Filter Pills */}
+        {/* Category Filters */}
         <div className="flex flex-wrap items-center gap-1.5">
           {categories.map((category) => (
             <button
               key={category}
               onClick={() => setSelectedCategory(category)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-mono tracking-wide transition-all ${
+              className={`px-3 py-1.5 border text-xs font-mono tracking-wide transition-all shadow-2xs ${
                 selectedCategory === category
-                  ? "bg-elenchus-chalk text-elenchus-ground font-medium shadow-sm"
-                  : "bg-elenchus-surface-1 border border-elenchus-border text-elenchus-muted hover:text-elenchus-stone hover:border-elenchus-border-strong"
+                  ? "bg-elenchus-chalk border-elenchus-chalk text-elenchus-ground font-medium"
+                  : "bg-elenchus-surface-1 border-elenchus-border text-elenchus-muted hover:text-elenchus-stone hover:border-elenchus-border-strong"
               }`}
             >
               {category === "all" ? "All Sparks" : category}
@@ -91,7 +91,7 @@ export function DailyDropGrid() {
       </div>
 
       {filteredTopics.length === 0 && !loading && (
-        <div className="text-center py-16 border border-dashed border-elenchus-border rounded-xl">
+        <div className="text-center py-16 border border-dashed border-elenchus-border shadow-2xs">
           <Layers className="w-8 h-8 mx-auto text-elenchus-muted mb-2" />
           <p className="text-elenchus-stone font-mono text-sm">
             No sparks found in this category.

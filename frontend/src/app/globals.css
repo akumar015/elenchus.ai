@@ -1,18 +1,18 @@
-@import url("https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,200..800;1,6..72,200..800&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,200..800;1,6..72,200..800&family=Noto+Sans+Devanagari:wght@400;500;600;700&display=swap");
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 :root {
-  --background: #0c0c0e;
-  --foreground: #f3f3ee;
-  color-scheme: dark;
+  --background: #fbfbf9;
+  --foreground: #0f0f10;
+  color-scheme: light;
 }
 
 html {
-  background-color: #0c0c0e;
-  color: #f3f3ee;
+  background-color: #fbfbf9;
+  color: #0f0f10;
   -webkit-tap-highlight-color: transparent;
   text-rendering: optimizeLegibility;
 }
@@ -20,15 +20,30 @@ html {
 body {
   min-height: 100vh;
   min-height: 100dvh;
-  background-color: #0c0c0e;
-  color: #f3f3ee;
-  font-family: var(--font-geist-sans), system-ui, -apple-system, sans-serif;
+  background-color: #fbfbf9;
+  color: #0f0f10;
+  font-family: var(--font-geist-sans), "Noto Sans Devanagari", system-ui, -apple-system, sans-serif;
   overflow-x: hidden;
 }
 
 ::selection {
-  background-color: rgba(217, 93, 57, 0.3);
-  color: #f3f3ee;
+  background-color: rgba(15, 15, 16, 0.12);
+  color: #0f0f10;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.animate-fadeIn {
+  animation: fadeIn 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
 /* Custom quiet scrollbars */
@@ -38,16 +53,16 @@ body {
 }
 
 ::-webkit-scrollbar-track {
-  background: #0c0c0e;
+  background: #fbfbf9;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #26262d;
+  background: rgba(15, 15, 16, 0.15);
   border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #383842;
+  background: rgba(15, 15, 16, 0.35);
 }
 
 /* Focus visibility for accessibility (WCAG 2.1 AAA compliant) */

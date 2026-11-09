@@ -32,20 +32,36 @@ export function TopicCard({ topic }: TopicCardProps) {
   };
 
   return (
-    <article className="group relative flex flex-col justify-between rounded-xl border border-elenchus-border bg-elenchus-surface-1 p-6 transition-all duration-300 hover:border-elenchus-terracotta/40 hover:bg-elenchus-surface-2/60">
+    <article className="group relative flex flex-col justify-between border border-elenchus-border bg-elenchus-surface-1 p-6 transition-all duration-300 hover:border-elenchus-terracotta/40 hover:bg-elenchus-surface-2/60 shadow-2xs">
       {/* Top Header: Category & Language Indicator */}
       <div className="flex items-center justify-between gap-2 mb-4">
         <span
-          className={`font-mono text-[11px] uppercase tracking-wider px-2.5 py-0.5 rounded-full border ${getCategoryStyles(
+          className={`font-mono text-[11px] uppercase tracking-wider px-2.5 py-0.5 border ${getCategoryStyles(
             topic.category
           )}`}
         >
           {topic.category}
         </span>
-        <div className="flex items-center gap-1.5 font-mono text-[10px] text-elenchus-muted bg-elenchus-ground px-2 py-0.5 rounded border border-elenchus-border">
+        <div className="flex items-center gap-1.5 font-mono text-[10px] text-elenchus-muted bg-elenchus-ground px-2 py-0.5 border border-elenchus-border">
           <Languages className="w-2.5 h-2.5 text-elenchus-stone" />
-          <span className={language === "hi-IN" ? "text-elenchus-terracotta font-medium" : "text-elenchus-stone"}>
-            {language === "hi-IN" ? "HINGLISH · POORVI" : "EN · KAVERI"}
+          <span
+            className={
+              language === "hi-IN"
+                ? "text-elenchus-terracotta font-medium"
+                : language === "pa-IN"
+                ? "text-[#c47335] font-medium"
+                : language === "te-IN"
+                ? "text-[#3d7a80] font-medium"
+                : "text-elenchus-stone"
+            }
+          >
+            {language === "hi-IN"
+              ? "HINGLISH · SHIVANI"
+              : language === "pa-IN"
+              ? "PUNJABI · TARIKA"
+              : language === "te-IN"
+              ? "TELUGU · LAKSHMI"
+              : "EN · KALPANA"}
           </span>
         </div>
       </div>
@@ -61,7 +77,7 @@ export function TopicCard({ topic }: TopicCardProps) {
       </div>
 
       {/* The Opening Trap Callout */}
-      <div className="rounded-lg border border-elenchus-border/80 bg-elenchus-ground/60 p-3.5 mb-6 space-y-1.5 transition-colors group-hover:border-elenchus-terracotta/25">
+      <div className="border border-elenchus-border/80 bg-elenchus-ground/60 p-3.5 mb-6 space-y-1.5 transition-colors group-hover:border-elenchus-terracotta/25">
         <div className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-widest text-elenchus-terracotta">
           <Flame className="w-3 h-3" />
           <span>Opening Trap</span>
@@ -74,7 +90,7 @@ export function TopicCard({ topic }: TopicCardProps) {
       {/* CTA Button */}
       <Link
         href={`/spar/${encodeURIComponent(topic.id)}`}
-        className="w-full inline-flex items-center justify-between px-4 py-2.5 rounded-lg bg-elenchus-surface-2 border border-elenchus-border font-mono text-xs uppercase tracking-wider text-elenchus-chalk group-hover:bg-elenchus-terracotta group-hover:border-elenchus-terracotta group-hover:text-white transition-all duration-200 active:scale-[0.98]"
+        className="w-full inline-flex items-center justify-between px-4 py-2.5 bg-elenchus-surface-2 border border-elenchus-border font-mono text-xs uppercase tracking-wider text-elenchus-chalk group-hover:bg-elenchus-terracotta group-hover:border-elenchus-terracotta group-hover:text-white transition-all duration-200 active:scale-[0.98] shadow-2xs"
       >
         <span>Enter Sparring Arena</span>
         <ArrowUpRight className="w-4 h-4 transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />

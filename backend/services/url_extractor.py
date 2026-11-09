@@ -14,10 +14,11 @@ from google.genai import types
 from pydantic import BaseModel, HttpUrl
 from backend.config import settings
 
-logger= logging.getLogger(__name__)
+logger = logging.getLogger(__name__)
 
-MODEL = "gemini-3.1-flash-lite"
-_client= genai.Client(api_key= settings.google_api_key)
+PRIMARY_MODEL = "gemini-3.5-flash-lite"
+FALLBACK_MODEL = "gemini-3.1-flash-lite"
+_client = genai.Client(api_key=settings.google_api_key)
 
 
 # Output Schema
@@ -26,30 +27,30 @@ class CustomTopic(BaseModel):
     title: str          # Short punchy title for the topic
     category: str       # e.g "custom spark"
     summary: str        # 2-3 sentence objective summary
-    opening_trap:str    # Controversial opening question/trap 
+    opening_trap: str   # Controversial opening question/trap 
     source_url: str     # Original URL
 
 
 # step-1: Extract article text
-def _extract_text(url: str)-> str:
+def _extract_text(url: str) -> str:
     """
     Download and extract clean article text from a URL using trafilatura.
     Returns raw text, or raises ValueError if extraction fails.
     """
 
-    downloaded= trafilatura.fetch_url(url)
+    downloaded = trafilatura.fetch_url(url)
     if not downloaded:
         raise ValueError(f"could not fetch url: {url}")
 
-    text= trafilatura.extract(
+    text = trafilatura.extract(
         downloaded,
-        include_comments= False,
-        include_tables= False,
-        no_fallback= False,
-        favor_precision= True,
+        include_comments=False,
+        include_tables=False,
+        no_fallback=False,
+        favor_precision=True,
     )
 
-    if not text or len(text.strip())< 100:
+    if not text or len(text.strip()) < 100:
         raise ValueError("Extracted text is too short or empty, the page maybe paywalled or Javascript rendered")
 
     # Truncate to ~6000 chars to stay well within token budget
@@ -75,61 +76,65 @@ Rules:
 - Never return empty strings.
 """
 
-async def _synthesize_topic(text: str, url: str)-> CustomTopic:
+
+def _parse_gemini_json(raw: str) -> dict:
+    raw = re.sub(r"^```(?:json)?\s*", "", raw, flags=re.IGNORECASE).strip()
+    raw = re.sub(r"\s*```$", "", raw).strip()
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        match = re.search(r"\{.*\}", raw, re.DOTALL)
+        if match:
+            return json.loads(match.group(0))
+        raise ValueError(f"Could not parse JSON response: {raw[:2000]}")
+
+async def _synthesize_topic(text: str, source_label: str) -> CustomTopic:
     """
-    Call Gemini to extract a debate topic form extracted article text
+    Call Gemini to extract a debate topic from extracted article text (with model fallback).
     """
 
-    user_prompt= f"""\
-SOURCE URL: {url}
+    user_prompt = f"""\
+SOURCE URL: {source_label}
 
 ARTICLE TEXT (truncated to ~6000 chars): {text}
 
 Generate the debate topic in JSON now
 """
 
-    try:
-        response = await _client.aio.models.generate_content(
-            model=MODEL,
-            contents=user_prompt,
-            config=types.GenerateContentConfig(
-                system_instruction=_SYNTHESIZER_SYSTEM,
-                temperature= 0.4,
-                max_output_tokens= 400
+    gen_config = types.GenerateContentConfig(
+        system_instruction=_SYNTHESIZER_SYSTEM,
+        temperature=0.4,
+        max_output_tokens=600,
+    )
+
+    raw = ""
+    for model_name in [PRIMARY_MODEL, FALLBACK_MODEL]:
+        try:
+            response = await _client.aio.models.generate_content(
+                model=model_name,
+                contents=user_prompt,
+                config=gen_config,
             )
-        )
+            candidate = (response.text or "").strip()
+            if candidate:
+                raw = candidate
+                break
+        except Exception as exc:
+            logger.warning("Synthesizer model %s failed: %s", model_name, exc)
+            if model_name == FALLBACK_MODEL:
+                raise RuntimeError(f"Gemini synthesis failed across all models: {exc}") from exc
 
-        raw= (response.text or "").strip()
-
-    except Exception as exc:
-        raise RuntimeError(f"Gemini synthesis failed: {exc}") from exc
-
-    # Parse JSON: strip markdown fences if present
-    raw = re.sub(r"^```(?:json)?\s*", "", raw, flags=re.IGNORECASE).strip()
-    raw = re.sub(r"\s*```$", "", raw).strip()
-
-    try: 
-        parsed= json.loads(raw)
-    except json.JSONDecodeError:
-        match= re.search(r"\{.*\}", raw, re.DOTALL)
-        if match:
-            parsed= json.loads(match.group(0))
-
-        else:
-            raise ValueError(f"Could not parse Gemini JSON request: {raw[:200]}")
-
-    # slugify title
-    slug= re.sub(r"[^a-z0-9]+", "-", parsed["title"].lower()).strip("-")[:60]
+    parsed = _parse_gemini_json(raw)
+    slug = re.sub(r"[^a-z0-9]+", "-", parsed["title"].lower()).strip("-")[:60]
 
     return CustomTopic(
         id=f"custom-{slug}",
         title=parsed["title"],
-        category="Custom Spark",
+        category=parsed.get("category", "Custom Spark"),
         summary=parsed["summary"],
         opening_trap=parsed["opening_trap"],
-        source_url=url,
+        source_url=source_label,
     )
-
 
 
 # Public API
@@ -144,5 +149,11 @@ async def extract_and_synthesize(url: str) -> CustomTopic:
     """
     # trafilatura.fetch_url is synchronous + blocking — run in thread
     text = await asyncio.to_thread(_extract_text, url)
-    topic = await _synthesize_topic(text, url)
+    topic = await _synthesize_topic(text, source_label=url)
     return topic
+
+
+async def synthesize_premise(premise: str) -> CustomTopic:
+    """Directly synthesize a debate topic from a user-written prompt or question"""
+    premise_clean = premise.strip()
+    return await _synthesize_topic(premise_clean, source_label="User Inscribed Premise")

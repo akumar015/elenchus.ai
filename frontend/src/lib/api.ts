@@ -1,5 +1,6 @@
 import { Topic } from "@/types/topic";
 import {
+  DialecticMode,
   DialecticStage,
   EndSparResponse,
   SparLanguage,
@@ -72,28 +73,36 @@ export const api = {
   },
 
   /**
-   * Start a new sparring session (text response)
+   * Start a new sparring session (text/dialogue response)
    */
   async startSpar(
     topicId: string,
-    language: SparLanguage = "en-IN"
+    language: SparLanguage = "en-IN",
+    mode: DialecticMode = "podcast",
+    userName?: string
   ): Promise<StartSparResponse> {
     return request<StartSparResponse>("/spar/start", {
       method: "POST",
-      body: JSON.stringify({ topic_id: topicId, language }),
+      body: JSON.stringify({
+        topic_id: topicId,
+        language,
+        mode,
+        user_name: userName,
+      }),
     });
   },
 
   /**
-   * Start a new sparring session (audio response)
+   * Start a new sparring session (audio response for Spar mode)
    */
   async startSparAudio(
     topicId: string,
-    language: SparLanguage = "en-IN"
+    language: SparLanguage = "en-IN",
+    mode: DialecticMode = "podcast"
   ): Promise<{ sessionId: string; stage: DialecticStage; introText: string; audioBlob: Blob }> {
     const url = `${API_BASE_URL}/spar/start/audio?topic_id=${encodeURIComponent(
       topicId
-    )}&language=${encodeURIComponent(language)}`;
+    )}&language=${encodeURIComponent(language)}&mode=${encodeURIComponent(mode)}`;
     const response = await fetch(url, { method: "POST" });
 
     if (!response.ok) {
@@ -144,7 +153,7 @@ export const api = {
   },
 
   /**
-   * Submit audio blob turn to the engine
+   * Submit audio blob turn to the engine (dual-mode: handles JSON dialogue for podcast or WAV for spar)
    */
   async sendTurnAudio(
     sessionId: string,
@@ -172,6 +181,26 @@ export const api = {
       throw new ApiError(errorDetail, response.status);
     }
 
+    const contentType = response.headers.get("content-type") || "";
+
+    // 1. Podcast Mode returns JSON with dialogue segments and base64 audio
+    if (contentType.includes("application/json")) {
+      const data = await response.json();
+      return {
+        sessionId: data.session_id,
+        mode: data.mode || "podcast",
+        userTranscript: data.user_transcript || "",
+        aiResponse: data.ai_response || "",
+        stage: data.stage || "STUDIO",
+        isComplete: !!data.is_complete,
+        dialogue: data.dialogue || null,
+        directed_at_guest: data.directed_at_guest ?? true,
+        topic_insight: data.topic_insight || null,
+        audioBlob: null,
+      };
+    }
+
+    // 2. Spar Mode returns binary WAV with telemetry headers
     const rawTranscript = response.headers.get("X-User-Transcript") || "";
     const rawAi = response.headers.get("X-Ai-Response") || "";
     const userTranscript = rawTranscript ? decodeURIComponent(rawTranscript) : "";
@@ -183,11 +212,13 @@ export const api = {
 
     return {
       sessionId,
+      mode: "spar",
       userTranscript,
       aiResponse,
       stage,
       isComplete,
       audioBlob: returnedAudioBlob,
+      dialogue: null,
     };
   },
 

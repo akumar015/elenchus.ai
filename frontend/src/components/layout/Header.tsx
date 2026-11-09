@@ -24,26 +24,26 @@ export function Header() {
   }, []);
 
   return (
-    <header className="w-full border-b border-elenchus-border bg-elenchus-ground/80 backdrop-blur-md sticky top-0 z-40 transition-colors">
+    <header className="w-full border-b border-[#0f0f10]/10 bg-[#fbfbf9]/85 backdrop-blur-md sticky top-0 z-40 transition-colors">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
         {/* Brand */}
         <Link
           href="/"
           className="group flex items-baseline gap-2.5 transition-opacity hover:opacity-90"
         >
-          <span className="font-serif text-2xl tracking-tight text-elenchus-chalk font-semibold">
-            elenchus<span className="text-elenchus-terracotta">.ai</span>
+          <span className="font-mono text-xl sm:text-2xl tracking-tight text-[#0f0f10] font-medium">
+            (elenchus.ai)
           </span>
-          <span className="font-mono text-[11px] uppercase tracking-wider text-elenchus-muted hidden sm:inline-block">
+          <span className="font-mono text-[11px] uppercase tracking-wider text-[#0f0f10]/50 hidden sm:inline-block">
             ἔλεγχος · Socratic Sparring
           </span>
         </Link>
 
         {/* Right Controls */}
         <div className="flex items-center gap-3 sm:gap-4">
-          {/* Backend Status Pill */}
+          {/* Backend Status Badge */}
           <div
-            className="flex items-center gap-2 font-mono text-[11px] px-2.5 py-1 rounded-full border border-elenchus-border bg-elenchus-surface-1"
+            className="flex items-center gap-2 font-mono text-[11px] px-2.5 py-1 border border-[#0f0f10]/15 bg-white/70 shadow-2xs"
             title={
               backendOnline === null
                 ? "Checking engine..."
@@ -55,13 +55,13 @@ export function Header() {
             <span
               className={`w-1.5 h-1.5 rounded-full ${
                 backendOnline === null
-                  ? "bg-elenchus-amber animate-pulse"
+                  ? "bg-[#b8945c] animate-pulse"
                   : backendOnline
-                  ? "bg-elenchus-emerald animate-pulse"
-                  : "bg-elenchus-muted"
+                  ? "bg-emerald-600 animate-pulse"
+                  : "bg-neutral-400"
               }`}
             />
-            <span className="text-elenchus-stone hidden md:inline">
+            <span className="text-[#0f0f10]/70 hidden md:inline">
               {backendOnline === null
                 ? "CONNECTING"
                 : backendOnline

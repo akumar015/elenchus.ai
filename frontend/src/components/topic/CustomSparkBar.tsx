@@ -42,7 +42,7 @@ export function CustomSparkBar() {
   };
 
   return (
-    <div className="rounded-xl border border-elenchus-border bg-elenchus-surface-1 p-6 sm:p-8 space-y-4">
+    <div className="border border-elenchus-border bg-elenchus-surface-1 p-6 sm:p-8 space-y-4 shadow-2xs">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
         <div className="space-y-1">
           <div className="flex items-center gap-2 font-mono text-xs uppercase tracking-wider text-elenchus-terracotta">
@@ -72,13 +72,13 @@ export function CustomSparkBar() {
             }}
             placeholder="Paste URL (Substack, Paul Graham essay, Wikipedia, Nature)..."
             disabled={state === "loading"}
-            className="w-full px-4 py-3 rounded-lg bg-elenchus-ground border border-elenchus-border text-elenchus-chalk placeholder:text-elenchus-muted font-mono text-xs focus:border-elenchus-terracotta transition-colors disabled:opacity-50"
+            className="w-full px-4 py-3 bg-elenchus-ground border border-elenchus-border text-elenchus-chalk placeholder:text-elenchus-muted font-mono text-xs focus:border-elenchus-terracotta transition-colors disabled:opacity-50 shadow-2xs"
           />
         </div>
         <button
           type="submit"
           disabled={!url.trim() || state === "loading"}
-          className="inline-flex items-center justify-center gap-2 px-6 py-3 rounded-lg bg-elenchus-terracotta hover:bg-elenchus-terracotta-hover text-white font-mono text-xs uppercase tracking-wider font-semibold transition-all duration-200 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
+          className="inline-flex items-center justify-center gap-2 px-6 py-3 bg-elenchus-terracotta hover:bg-elenchus-terracotta-hover text-white font-mono text-xs uppercase tracking-wider font-semibold transition-all duration-200 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed shadow-2xs"
         >
           {state === "loading" ? (
             <>

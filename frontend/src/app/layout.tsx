@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import localFont from "next/font/local";
 import "./globals.css";
+import { AuthProvider } from "@/components/providers/AuthProvider";
 
 const geistSans = localFont({
   src: "./fonts/GeistVF.woff",
@@ -15,9 +16,12 @@ const geistMono = localFont({
 });
 
 export const metadata: Metadata = {
-  title: "elenchus.ai — The Socratic Sparring Engine",
+  title: "elenchus.ai — Dialectical Voice Companion",
   description:
-    "An anti-sycophantic conversational sparring partner that cures passive consumption by forcing you to defend your logic out loud.",
+    "An intellectual, voice-first dialectical companion designed to explore, question, and refine thought through natural spoken inquiry.",
+  icons: {
+    icon: "/assets/elenchus-mark.svg",
+  },
 };
 
 export default function RootLayout({
@@ -28,10 +32,10 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} dark`}
+      className={`${geistSans.variable} ${geistMono.variable}`}
     >
-      <body className="min-h-screen bg-elenchus-ground text-elenchus-chalk antialiased font-sans">
-        {children}
+      <body className="min-h-screen bg-[#fbfbf9] text-[#0f0f10] antialiased font-sans">
+        <AuthProvider>{children}</AuthProvider>
       </body>
     </html>
   );

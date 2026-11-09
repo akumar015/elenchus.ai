@@ -1,7 +1,6 @@
 "use client";
 
 import { DialecticStage } from "@/types/spar";
-import { Sparkles } from "lucide-react";
 
 interface StageProgressProps {
   currentStage: DialecticStage;
@@ -14,36 +13,37 @@ const STAGE_LABELS: Record<DialecticStage, { label: string; desc: string }> = {
   PUSHBACK: { label: "DIALECTIC FRICTION", desc: "Testing structural assumptions" },
   DEEPEN: { label: "COLLAPSING THE MODEL", desc: "Socratic examination & edge cases" },
   WRAP: { label: "SYNTHESIS", desc: "Distilling core insight" },
+  STUDIO: { label: "ROUNDTABLE", desc: "Co-host dialectic debate" },
 };
 
 export function StageProgress({ currentStage, turnCount }: StageProgressProps) {
   const current = STAGE_LABELS[currentStage] || STAGE_LABELS.INTRO;
 
   return (
-    <div className="w-full bg-elenchus-surface-2/60 border border-elenchus-border/60 rounded-xl px-4 py-2.5 backdrop-blur-sm">
+    <div className="w-full bg-white/80 border border-[#0f0f10]/12 px-4 py-2.5 backdrop-blur-sm shadow-2xs">
       <div className="flex items-center justify-between text-xs font-mono">
         {/* Left: Mode Indicator */}
         <div className="flex items-center gap-2">
           <span className="relative flex h-2 w-2">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-elenchus-terracotta opacity-75" />
-            <span className="relative inline-flex rounded-full h-2 w-2 bg-elenchus-terracotta" />
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#b8945c] opacity-75" />
+            <span className="relative inline-flex rounded-full h-2 w-2 bg-[#b8945c]" />
           </span>
-          <span className="uppercase tracking-widest text-elenchus-muted text-[11px]">
+          <span className="uppercase tracking-widest text-[#0f0f10]/50 text-[11px]">
             Dialectic Arena
           </span>
-          <span className="text-elenchus-border">·</span>
-          <span className="text-elenchus-chalk font-medium truncate max-w-[160px] sm:max-w-none">
+          <span className="text-[#0f0f10]/20">·</span>
+          <span className="text-[#0f0f10] font-medium truncate max-w-[160px] sm:max-w-none">
             {current.label}
           </span>
         </div>
 
         {/* Right: Turn & Depth telemetry */}
-        <div className="flex items-center gap-2 text-elenchus-stone">
-          <span className="hidden sm:inline text-elenchus-muted text-[10px]">
+        <div className="flex items-center gap-2 text-[#0f0f10]/70">
+          <span className="hidden sm:inline text-[#0f0f10]/50 text-[10px]">
             {current.desc}
           </span>
-          <span className="hidden sm:inline text-elenchus-border">·</span>
-          <span className="font-mono text-elenchus-terracotta font-semibold text-[11px]">
+          <span className="hidden sm:inline text-[#0f0f10]/20">·</span>
+          <span className="font-mono text-[#b8945c] font-semibold text-[11px]">
             TURN {String(turnCount).padStart(2, "0")}
           </span>
         </div>

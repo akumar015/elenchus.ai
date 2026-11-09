@@ -1,96 +1,101 @@
-import { Header } from "@/components/layout/Header";
-import { DailyDropGrid } from "@/components/topic/DailyDropGrid";
-import { CustomSparkBar } from "@/components/topic/CustomSparkBar";
-import { ShieldAlert, Zap, Radio, BookOpen } from "lucide-react";
+"use client";
+
+import React, { useState } from "react";
+import { useRouter } from "next/navigation";
+import { ScrollVideo } from "@/components/landing/ScrollVideo";
+import { Navbar } from "@/components/landing/Navbar";
+import { SectionOne } from "@/components/landing/SectionOne";
+import { SectionTwo } from "@/components/landing/SectionTwo";
+import { FeatureSection } from "@/components/landing/FeatureSection";
+import { COGNITIVE_FEATURES } from "@/components/landing/featuresData";
+import { DialogueModal } from "@/components/landing/DialogueModal";
+import { AboutModal } from "@/components/landing/AboutModal";
+import { CognitiveModal } from "@/components/landing/CognitiveModal";
+import { AuthModal } from "@/components/landing/AuthModal";
 
 export default function Home() {
+  const router = useRouter();
+  const [dialogueModalOpen, setDialogueModalOpen] = useState(false);
+  const [aboutModalOpen, setAboutModalOpen] = useState(false);
+  const [architectureModalOpen, setArchitectureModalOpen] = useState(false);
+  const [authModalOpen, setAuthModalOpen] = useState(false);
+
+  const handleInitiateDialogue = () => {
+    router.push("/studio");
+  };
+
+  const handleScrollToFirstFeature = () => {
+    const firstFeature = document.getElementById(COGNITIVE_FEATURES[0].id);
+    if (firstFeature) {
+      firstFeature.scrollIntoView({ behavior: "smooth" });
+    }
+  };
+
   return (
-    <div className="min-h-screen flex flex-col bg-elenchus-ground text-elenchus-chalk">
-      <Header />
+    <div className="relative min-h-screen text-[#0f0f10] selection:bg-[#0f0f10]/12 selection:text-[#0f0f10] antialiased">
+      {/* 1. Procedural, Scroll-Reactive Cymatic Acoustic Canvas Animation */}
+      <ScrollVideo />
 
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-10 sm:py-16 space-y-16 sm:space-y-24">
-        {/* Editorial Hero Section */}
-        <section className="space-y-6 max-w-3xl">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-md bg-elenchus-terracotta/10 border border-elenchus-terracotta/30 text-elenchus-terracotta font-mono text-xs">
-            <ShieldAlert className="w-3.5 h-3.5" />
-            <span>THE SOCRATIC CONVERSATIONAL ENGINE</span>
-          </div>
+      {/* 2. Fixed Top Navigation */}
+      <Navbar
+        onOpenAbout={() => setAboutModalOpen(true)}
+        onOpenArchitecture={() => setArchitectureModalOpen(true)}
+        onOpenAuth={() => setAuthModalOpen(true)}
+        onInitiateDialogue={handleInitiateDialogue}
+      />
 
-          <h1 className="font-serif text-4xl sm:text-6xl text-elenchus-chalk tracking-tight leading-[1.08]">
-            Cure passive consumption.
-            <br />
-            <span className="italic font-normal text-elenchus-stone">
-              Defend your reasoning out loud.
-            </span>
-          </h1>
+      {/* 3. Main Multi-Screen Editorial Experience (One Scroll per Feature) */}
+      <main className="relative z-10 flex flex-col">
+        {/* Screen 1: Hero */}
+        <div id="section-hero">
+          <SectionOne
+            onInitiateDialogue={handleInitiateDialogue}
+            onScrollToNext={handleScrollToFirstFeature}
+          />
+        </div>
 
-          <p className="text-elenchus-stone text-base sm:text-lg leading-relaxed max-w-2xl">
-            Listening to summaries produces an illusion of competence. elenchus.ai
-            transforms essays, philosophy, and mental models into a two-way verbal
-            sparring ring—detecting lazy clichés and ambiently capturing your spoken
-            epiphanies.
-          </p>
+        {/* Screens 2 to 5: The 4 Cognitive Retention Features (One Scroll Per Feature) */}
+        {COGNITIVE_FEATURES.map((feature, idx) => (
+          <FeatureSection
+            key={feature.id}
+            feature={feature}
+            index={idx}
+            total={COGNITIVE_FEATURES.length}
+            onInitiateDialogue={handleInitiateDialogue}
+          />
+        ))}
 
-          {/* Core Ethos Pillars */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-4">
-            <div className="p-4 rounded-lg border border-elenchus-border bg-elenchus-surface-1/50 space-y-1.5">
-              <div className="flex items-center gap-2 text-elenchus-terracotta font-mono text-xs uppercase tracking-wider">
-                <Zap className="w-3.5 h-3.5" />
-                <span>Zero Monologues</span>
-              </div>
-              <p className="text-elenchus-stone text-xs leading-relaxed">
-                20-second punchy volleys ending in counter-intuitive traps.
-              </p>
-            </div>
-
-            <div className="p-4 rounded-lg border border-elenchus-border bg-elenchus-surface-1/50 space-y-1.5">
-              <div className="flex items-center gap-2 text-elenchus-emerald font-mono text-xs uppercase tracking-wider">
-                <Radio className="w-3.5 h-3.5" />
-                <span>Voice-First Fluency</span>
-              </div>
-              <p className="text-elenchus-stone text-xs leading-relaxed">
-                Powered by Gnani STT & Timbre TTS with natural Indian accent cadence.
-              </p>
-            </div>
-
-            <div className="p-4 rounded-lg border border-elenchus-border bg-elenchus-surface-1/50 space-y-1.5">
-              <div className="flex items-center gap-2 text-elenchus-amber font-mono text-xs uppercase tracking-wider">
-                <BookOpen className="w-3.5 h-3.5" />
-                <span>Atomic Thought Cards</span>
-              </div>
-              <p className="text-elenchus-stone text-xs leading-relaxed">
-                Every exposed blind spot captured and export-ready for Notion / Obsidian.
-              </p>
-            </div>
-          </div>
-        </section>
-
-        {/* Bring Your Own Spark Bar */}
-        <CustomSparkBar />
-
-        {/* The Daily Drops Grid */}
-        <DailyDropGrid />
+        {/* Screen 6: Second Statement & Direct Arena Launch */}
+        <div id="section-closing">
+          <SectionTwo onStartVoiceSession={handleInitiateDialogue} />
+        </div>
       </main>
 
-      {/* Editorial Footer */}
-      <footer className="border-t border-elenchus-border bg-elenchus-surface-1/40 py-8 mt-16">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-4 font-mono text-xs text-elenchus-muted">
-          <div className="flex items-center gap-2">
-            <span className="text-elenchus-chalk font-serif font-semibold">
-              elenchus.ai
-            </span>
-            <span>·</span>
-            <span>The Socratic Conversational Sparring Engine</span>
-          </div>
-          <div className="flex items-center gap-4 text-elenchus-stone">
-            <span>Gnani AI SDK</span>
-            <span>·</span>
-            <span>Gemini 3.5 Flash</span>
-            <span>·</span>
-            <span>Next.js 14 App Router</span>
-          </div>
-        </div>
-      </footer>
+      {/* 4. Voice Sparring Frequency / Dialogue Launcher */}
+      <DialogueModal
+        isOpen={dialogueModalOpen}
+        onClose={() => setDialogueModalOpen(false)}
+      />
+
+      {/* 5. About Modal */}
+      <AboutModal
+        isOpen={aboutModalOpen}
+        onClose={() => setAboutModalOpen(false)}
+        onExploreArchitecture={() => setArchitectureModalOpen(true)}
+        onTryDemo={handleInitiateDialogue}
+      />
+
+      {/* 6. Cognitive Architecture Modal */}
+      <CognitiveModal
+        isOpen={architectureModalOpen}
+        onClose={() => setArchitectureModalOpen(false)}
+      />
+
+      {/* 7. Sign In / Sign Up Modal */}
+      <AuthModal
+        isOpen={authModalOpen}
+        onClose={() => setAuthModalOpen(false)}
+      />
     </div>
   );
 }
