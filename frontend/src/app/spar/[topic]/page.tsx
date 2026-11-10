@@ -244,7 +244,7 @@ export default function SparringArenaPage() {
           try {
             const blob = base64ToWavBlob(seg.audio_base64);
             queue.push({
-              speaker: isHost1 ? "host1" : isHost2 ? "host2" : "idle",
+              speaker: isHost2 ? "host2" : "host1",
               blob,
             });
           } catch (e) {

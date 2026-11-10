@@ -287,11 +287,41 @@ async def start_spar(req: StartSparRequest) -> StartSparResponse:
         intro_text, _ = await get_next_turn(session, spar_kickoff)
         _sessions[session_id] = session
 
+        # Synthesize opening speech for duel / spar mode AI
+        spar_voice = "Kalpana"
+        if req.language == "hi-IN":
+            spar_voice = "Shivani"
+        elif req.language == "pa-IN":
+            spar_voice = "Tarika"
+        elif req.language == "te-IN":
+            spar_voice = "Lakshmi"
+
+        b64: str | None = None
+        try:
+            ai_audio = await synthesize_speech(intro_text, voice=spar_voice, language=req.language)
+            if isinstance(ai_audio, bytes) and len(ai_audio) > 0:
+                b64 = base64.b64encode(ai_audio).decode("utf-8")
+        except Exception as e:
+            safe_err = str(e).encode("ascii", errors="backslashreplace").decode("ascii")
+            print(f"[SPAR TTS ERROR] Opening speech synthesis failed: {safe_err}")
+
+        spar_dialogue = [
+            DialogueSegmentPayload(
+                speaker="AI",
+                voice=spar_voice,
+                text=intro_text,
+                audio_base64=b64,
+                turn_count=0,
+                segment_index=0,
+            )
+        ]
+
         return StartSparResponse(
             session_id=session_id, 
             mode="spar", 
             rigor=req.rigor,
-            intro_text=intro_text
+            intro_text=intro_text,
+            dialogue=spar_dialogue,
         )
     except Exception as exc:
         safe_err = str(exc).encode("ascii", errors="backslashreplace").decode("ascii")
@@ -365,6 +395,35 @@ async def spar_turn_text(
 
     #2. Socratic sparring turn
     ai_response, is_complete= await get_next_turn(session, text)
+
+    spar_voice = "Kalpana"
+    if session.language == "hi-IN":
+        spar_voice = "Shivani"
+    elif session.language == "pa-IN":
+        spar_voice = "Tarika"
+    elif session.language == "te-IN":
+        spar_voice = "Lakshmi"
+
+    b64: str | None = None
+    try:
+        ai_audio = await synthesize_speech(ai_response, voice=spar_voice, language=session.language)
+        if isinstance(ai_audio, bytes) and len(ai_audio) > 0:
+            b64 = base64.b64encode(ai_audio).decode("utf-8")
+    except Exception as e:
+        safe_err = str(e).encode("ascii", errors="backslashreplace").decode("ascii")
+        print(f"[SPAR TTS ERROR] Turn speech synthesis failed: {safe_err}")
+
+    spar_dialogue = [
+        DialogueSegmentPayload(
+            speaker="AI",
+            voice=spar_voice,
+            text=ai_response,
+            audio_base64=b64,
+            turn_count=session.turn_count,
+            segment_index=0,
+        )
+    ]
+
     return TurnTextResponse(
         session_id=sid,
         mode="spar",
@@ -372,7 +431,7 @@ async def spar_turn_text(
         ai_response=ai_response,
         stage=session.stage.value,
         is_complete=is_complete,
-        dialogue=None
+        dialogue=spar_dialogue
     )
 
 @router.post("/start/audio", response_class=Response)
@@ -713,13 +772,6 @@ async def spar_turn_stream(
         else:
             # Socratic Sparring mode turn
             ai_response, is_complete = await get_next_turn(session, user_transcript)
-            b64 = None
-            try:
-                tts_audio = await synthesize_speech(ai_response, language=session.language)
-                if isinstance(tts_audio, bytes) and len(tts_audio) > 0:
-                    b64 = base64.b64encode(tts_audio).decode("utf-8")
-            except Exception as e:
-                pass
 
             voice_name = "Kalpana"
             if session.language == "hi-IN":
@@ -728,6 +780,16 @@ async def spar_turn_stream(
                 voice_name = "Tarika"
             elif session.language == "te-IN":
                 voice_name = "Lakshmi"
+
+            b64 = None
+            try:
+                tts_audio = await synthesize_speech(ai_response, voice=voice_name, language=session.language)
+                if isinstance(tts_audio, bytes) and len(tts_audio) > 0:
+                    b64 = base64.b64encode(tts_audio).decode("utf-8")
+            except Exception as e:
+                safe_err = str(e).encode("ascii", errors="backslashreplace").decode("ascii")
+                print(f"[STREAM SPAR TTS ERROR] {safe_err}")
+
             payload = {
                 "speaker": "AI",
                 "voice": voice_name,
