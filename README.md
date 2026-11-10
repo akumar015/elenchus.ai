@@ -4,7 +4,7 @@
 > Built for the **Gnani AI Voice Engineering Challenge**.  
 > Powered by **Google Gemini 3.5 Flash Lite**, **Gnani Timbre v3.0**, and **Gnani Prisma STT**.  
 > 
-> 📄 **Submission 1-Page Pitch:** [SOLUTION_PITCH.md](SOLUTION_PITCH.md)  
+> 📄 **Submission 1-Page Pitch (PDF):** [SOLUTION_PITCH.pdf](SOLUTION_PITCH.pdf) ([Markdown View](SOLUTION_PITCH.md))  
 > 🌐 **Live Deployment:** [elenchus-ai.indiasouthcentral.cloudapp.azure.com](https://elenchus-ai.indiasouthcentral.cloudapp.azure.com)  
 > 💻 **GitHub Repository:** [github.com/akumar015/elenchus.ai](https://github.com/akumar015/elenchus.ai)
 
