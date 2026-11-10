@@ -1,3 +1,4 @@
+import os
 import sys
 
 # Ensure UTF-8 output on Windows consoles so Hindi/Devanagari text never crashes with UnicodeEncodeError
@@ -29,9 +30,21 @@ app = FastAPI(
     version="0.1.0",
 )
 
+# Dynamic CORS configuration for local dev and cloud production
+raw_origins = os.getenv("CORS_ORIGINS", "")
+if raw_origins.strip():
+    allowed_origins = [origin.strip() for origin in raw_origins.split(",") if origin.strip()]
+else:
+    allowed_origins = [
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "https://*.vercel.app",
+    ]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_origins=allowed_origins,
+    allow_origin_regex=r"https://.*\.vercel\.app" if "https://*.vercel.app" in allowed_origins else None,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
