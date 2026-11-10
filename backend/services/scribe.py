@@ -15,7 +15,8 @@ from backend.config import settings
 logger = logging.getLogger(__name__)
 
 PRIMARY_MODEL = "gemini-3.5-flash-lite"
-FALLBACK_MODEL = "gemini-3.1-flash-lite"
+FALLBACK_MODELS = ["gemini-2.5-flash", "gemini-2.0-flash"]
+CANDIDATE_MODELS = [PRIMARY_MODEL] + FALLBACK_MODELS
 
 _client = genai.Client(api_key=settings.google_api_key)
 
@@ -118,7 +119,7 @@ Generate the Atomic Thought Card JSON now.
     )
 
     raw = ""
-    for model_name in [PRIMARY_MODEL, FALLBACK_MODEL]:
+    for model_name in CANDIDATE_MODELS:
         try:
             response = await _client.aio.models.generate_content(
                 model=model_name,
@@ -132,7 +133,7 @@ Generate the Atomic Thought Card JSON now.
                 break
         except Exception as exc:
             logger.warning("Scribe call to %s failed: %s", model_name, exc)
-            if model_name == FALLBACK_MODEL and not raw:
+            if model_name == CANDIDATE_MODELS[-1] and not raw:
                 logger.error("All Gemini scribe models failed.")
                 return ThoughtCard(
                     core_thesis=f"A debate on: {topic_summary}",

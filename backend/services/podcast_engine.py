@@ -9,6 +9,7 @@ Generates structured multi-speaker turns with zero-latency parallel audio ready.
 
 import json
 import time
+import asyncio
 from dataclasses import dataclass, field
 from typing import Literal
 from pydantic import BaseModel, Field
@@ -17,7 +18,8 @@ from google.genai import types
 from backend.config import settings
 
 PRIMARY_MODEL = "gemini-3.5-flash-lite"
-FALLBACK_MODEL = "gemini-3.1-flash-lite"
+FALLBACK_MODELS = ["gemini-2.5-flash", "gemini-2.0-flash"]
+CANDIDATE_MODELS = [PRIMARY_MODEL] + FALLBACK_MODELS
 
 # Structured Dialogue Response Schemas (Strict JSON Schema for Gemini)
 
@@ -333,27 +335,59 @@ async def get_next_podcast_turn(
     )
 
     turn: PodcastTurn | None = None
-    for model_name in [PRIMARY_MODEL, FALLBACK_MODEL]:
-        try:
-            response = await _client.aio.models.generate_content(
-                model=model_name,
-                contents=contents,
-                config=gen_config,
-            )
-            raw_json = response.text or "{}"
-            turn = PodcastTurn.model_validate_json(raw_json)
-            break
-        except Exception as e:
+    for model_name in CANDIDATE_MODELS:
+        for attempt in range(2):
             try:
+                response = await _client.aio.models.generate_content(
+                    model=model_name,
+                    contents=contents,
+                    config=gen_config,
+                )
+                raw_json = response.text or "{}"
+                turn = PodcastTurn.model_validate_json(raw_json)
+                break
+            except Exception as e:
                 safe_err = str(e).encode("ascii", errors="backslashreplace").decode("ascii")
-                print(f"[PODCAST ENGINE] Model {model_name} failed: {safe_err}")
-            except Exception:
-                pass
-            if model_name == FALLBACK_MODEL:
-                raise
+                print(f"[PODCAST ENGINE] Model {model_name} (attempt {attempt+1}) failed: {safe_err}")
+                if ("503" in safe_err or "429" in safe_err or "UNAVAILABLE" in safe_err) and attempt == 0:
+                    await asyncio.sleep(1.0)
+                    continue
+                break
+        if turn is not None:
+            break
 
     if turn is None:
-        raise RuntimeError("Failed to generate podcast turn across all models.")
+        if session.turn_count == 0:
+            # Deterministic kickoff fallback if all Gemini models encounter transient outage
+            title = session.topic_title or "this premise"
+            if session.language == "hi-IN":
+                h1_text = f"elenchus Studio में आपका स्वागत है। आज हम बात कर रहे हैं {title} की—एक ऐसा विचार जो पहली नज़र में बिल्कुल सच लगता है, लेकिन गहराई में कई विरोधाभास समेटे हुए है।"
+                h2_text = f"Shivani, textbook logic सुनना अच्छा लगता है, लेकिन real-world data अक्सर हमारे assumptions की धज्जियाँ उड़ा देता है। तो guest thinker, क्या आप इस premise को एक absolute reality मानते हैं, या सिर्फ एक comforting illusion?"
+                h1_voice = "Shivani"
+            elif session.language == "pa-IN":
+                h1_text = f"elenchus Studio ਵਿੱਚ ਤੁਹਾਡਾ ਸੁਆਗਤ ਹੈ। ਅੱਜ ਅਸੀਂ ਪੜਚੋਲ ਕਰ ਰਹੇ ਹਾਂ {title} ਦੀ—ਜੋ ਪਹਿਲੀ ਨਜ਼ਰ ਵਿੱਚ ਸੱਚ ਜਾਪਦਾ ਹੈ।"
+                h2_text = f"ਪਰ ਅਸਲ ਦੁਨੀਆ ਵਿੱਚ ਸਾਡੇ assumptions ਅਕਸਰ ਫੇਲ੍ਹ ਹੋ ਜਾਂਦੇ ਹਨ। ਤੁਹਾਡਾ ਇਸ ਬਾਰੇ ਕੀ ਵਿਚਾਰ ਹੈ?"
+                h1_voice = "Tarika"
+            elif session.language == "te-IN":
+                h1_text = f"elenchus Studio కి స్వాగతం! ఈ రోజు మనం చర్చిస్తున్న అంశం {title}."
+                h2_text = f"కానీ వాస్తవ ప్రపంచంలో సిద్ధాంతాలు తరచుగా విఫలమవుతాయి. ఈ అంశంపై మీ అభిప్రాయం ఏమిటి?"
+                h1_voice = "Lakshmi"
+            else:
+                h1_text = f"Welcome to elenchus Studio. Today we are digging into {title}—a provocative premise that seems obvious at first glance, but harbors deep tensions underneath."
+                h2_text = f"Kalpana treats it with academic reverence, but out in the messy real world, the unmeasured variables always break the textbook narrative. Guest, where do you actually stand on this?"
+                h1_voice = "Kalpana"
+
+            turn = PodcastTurn(
+                dialogue=[
+                    DialogueSegment(speaker="Host1", voice=h1_voice, text=h1_text),
+                    DialogueSegment(speaker="Host2", voice="Avinash", text=h2_text),
+                ],
+                directed_at_guest=True,
+                topic_insight=f"Exploration of dialectic tensions around {title}",
+                is_complete=False,
+            )
+        else:
+            raise RuntimeError("Failed to generate podcast turn across all candidate models.")
 
     # Fallback voice assignment guard
     default_host1_voice = "Kalpana"
@@ -473,7 +507,7 @@ async def stream_podcast_turn_segments(
     elif session.language == "te-IN":
         default_host1_voice = "Lakshmi"
 
-    for model_name in [PRIMARY_MODEL, FALLBACK_MODEL]:
+    for model_name in CANDIDATE_MODELS:
         try:
             response_stream = await _client.aio.models.generate_content_stream(
                 model=model_name,
@@ -509,5 +543,5 @@ async def stream_podcast_turn_segments(
                 print(f"[PODCAST ENGINE STREAM] Model {model_name} failed: {safe_err}")
             except Exception:
                 pass
-            if model_name == FALLBACK_MODEL:
+            if model_name == CANDIDATE_MODELS[-1]:
                 raise

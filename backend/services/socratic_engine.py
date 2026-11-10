@@ -10,8 +10,11 @@ from google import genai
 from google.genai import types
 from google.genai.errors import ClientError
 from backend.config import settings
+import asyncio
+
 PRIMARY_MODEL = "gemini-3.5-flash-lite"
-FALLBACK_MODEL = "gemini-3.1-flash-lite"
+FALLBACK_MODELS = ["gemini-2.5-flash", "gemini-2.0-flash"]
+CANDIDATE_MODELS = [PRIMARY_MODEL] + FALLBACK_MODELS
 
 _EARLY_STAGE_MAX_TURNS=4
 
@@ -539,25 +542,27 @@ async def get_next_turn(session: SparSession, user_input: str) -> tuple[str, boo
     )
 
     ai_text = ""
-    for model_name in [PRIMARY_MODEL, FALLBACK_MODEL]:
-        try:
-            response = await _client.aio.models.generate_content(
-                model=model_name,
-                contents=contents,
-                config=gen_config,
-            )
-            candidate_text = (response.text or "").strip()
-            if candidate_text:
-                ai_text = candidate_text
-                break
-        except Exception as e:
+    for model_name in CANDIDATE_MODELS:
+        for attempt in range(2):
             try:
+                response = await _client.aio.models.generate_content(
+                    model=model_name,
+                    contents=contents,
+                    config=gen_config,
+                )
+                candidate_text = (response.text or "").strip()
+                if candidate_text:
+                    ai_text = candidate_text
+                    break
+            except Exception as e:
                 safe_err = str(e).encode("ascii", errors="backslashreplace").decode("ascii")
-                print(f"[SOCRATIC ENGINE] Model {model_name} failed: {safe_err}")
-            except Exception:
-                pass
-            if model_name == FALLBACK_MODEL:
-                raise
+                print(f"[SOCRATIC ENGINE] Model {model_name} (attempt {attempt+1}) failed: {safe_err}")
+                if ("503" in safe_err or "429" in safe_err or "UNAVAILABLE" in safe_err) and attempt == 0:
+                    await asyncio.sleep(1.0)
+                    continue
+                break
+        if ai_text:
+            break
 
     if not ai_text:
         ai_text = "Interesting. But I need more than silence, take a position."

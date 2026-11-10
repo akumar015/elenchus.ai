@@ -223,75 +223,103 @@ async def start_spar(req: StartSparRequest) -> StartSparResponse:
     Initialize a new elenchus.ai sparring session (text response).
     Routes to podcast studio (default) or socratic sparring arena
     """
-    topic = _load_topic(req.topic_id)
     session_id = str(uuid.uuid4())
-    print(f"[START SPAR] Generated session_id={session_id}, mode={req.mode}, topic={req.topic_id}")
+    try:
+        topic = _load_topic(req.topic_id)
+        print(f"[START SPAR] Generated session_id={session_id}, mode={req.mode}, topic={req.topic_id}")
 
-    if req.mode == "podcast":
-        session = PodcastSession(
+        if req.mode == "podcast":
+            session = PodcastSession(
+                topic_id=req.topic_id,
+                topic_title=topic.get("title", req.topic_id),
+                topic_summary=topic.get("summary", ""),
+                topic_dossier=topic.get("dossier", ""),
+                language=req.language,
+                user_name=req.user_name,
+                rigor=req.rigor,
+            )
+            _sessions[session_id] = session
+            print(f"[START SPAR] Registered session_id={session_id} immediately (rigor={req.rigor}). Known: {list(_sessions.keys())}")
+
+            # Kickoff initial podcast Dialogue in native language
+            kickoff_text = "Let's start the show."
+            if req.language == "hi-IN":
+                kickoff_text = "चलो बातचीत शुरू करते हैं।"
+            elif req.language == "pa-IN":
+                kickoff_text = "ਚਲੋ ਗੱਲਬਾਤ ਸ਼ੁਰੂ ਕਰਦੇ ਹਾਂ।"
+            elif req.language == "te-IN":
+                kickoff_text = "చర్చను ప్రారంభిద్దాం."
+
+            turn = await get_next_podcast_turn(session, kickoff_text)
+            payload_dialogue = await _synthesize_podcast_dialogue(turn.dialogue, req.language, session=session)
+            _sessions[session_id] = session
+            print(f"[START SPAR] Completed initial dialogue for session_id={session_id}. Total sessions={len(_sessions)}")
+
+            intro_text = " ".join(seg.text for seg in turn.dialogue)
+
+            return StartSparResponse(
+                session_id=session_id,
+                mode="podcast",
+                rigor=req.rigor,
+                intro_text=intro_text,
+                dialogue=payload_dialogue
+            )
+
+        # Sparring Arena mode (1 on 1)
+        session = SparSession(
             topic_id=req.topic_id,
-            topic_title=topic.get("title", req.topic_id),
-            topic_summary=topic.get("summary", ""),
-            topic_dossier=topic.get("dossier", ""),
+            topic_summary=topic["summary"],
+            opening_trap=topic["opening_trap"],
+            language=req.language,
+            rigor=req.rigor,
+            stage=Stage.INTRO,
+            topic_dossier=topic.get("dossier","")
+        )
+        # Initialize Gemini context cache / prompt
+        await init_session_cache(session)
+        spar_kickoff = "Let's start."
+        if req.language == "hi-IN":
+            spar_kickoff = "चलो बातचीत शुरू करते हैं।"
+        elif req.language == "pa-IN":
+            spar_kickoff = "ਚਲੋ ਗੱਲਬਾਤ ਸ਼ੁਰੂ ਕਰਦੇ ਹਾਂ।"
+        elif req.language == "te-IN":
+            spar_kickoff = "చర్చను ప్రారంభిద్దాం."
+        intro_text, _ = await get_next_turn(session, spar_kickoff)
+        _sessions[session_id] = session
+
+        return StartSparResponse(
+            session_id=session_id, 
+            mode="spar", 
+            rigor=req.rigor,
+            intro_text=intro_text
+        )
+    except Exception as exc:
+        safe_err = str(exc).encode("ascii", errors="backslashreplace").decode("ascii")
+        print(f"[START SPAR ERROR] Exception during session start: {safe_err}")
+        clean_title = req.topic_id.replace("custom-", "").replace("-", " ").title()
+        fallback_session = PodcastSession(
+            topic_id=req.topic_id,
+            topic_title=clean_title,
+            topic_summary=clean_title,
+            topic_dossier="",
             language=req.language,
             user_name=req.user_name,
             rigor=req.rigor,
         )
-        _sessions[session_id] = session
-        print(f"[START SPAR] Registered session_id={session_id} immediately (rigor={req.rigor}). Known: {list(_sessions.keys())}")
-
-        # Kickoff initial podcast Dialogue in native language
-        kickoff_text = "Let's start the show."
-        if req.language == "hi-IN":
-            kickoff_text = "चलो बातचीत शुरू करते हैं।"
-        elif req.language == "pa-IN":
-            kickoff_text = "ਚਲੋ ਗੱਲਬਾਤ ਸ਼ੁਰੂ ਕਰਦੇ ਹਾਂ।"
-        elif req.language == "te-IN":
-            kickoff_text = "చర్చను ప్రారంభిద్దాం."
-
-        turn = await get_next_podcast_turn(session, kickoff_text)
-        payload_dialogue = await _synthesize_podcast_dialogue(turn.dialogue, req.language, session=session)
-        _sessions[session_id] = session
-        print(f"[START SPAR] Completed initial dialogue for session_id={session_id}. Total sessions={len(_sessions)}")
-
-        intro_text = " ".join(seg.text for seg in turn.dialogue)
-
+        _sessions[session_id] = fallback_session
+        h1_text = f"Welcome to elenchus Studio. We are exploring {clean_title} today. Let's test the premises."
+        h2_text = "Where do you stand on this? What is your take?"
+        fallback_dialogue = [
+            DialogueSegmentPayload(speaker="Host1", voice="Kalpana", text=h1_text, turn_count=0, segment_index=0),
+            DialogueSegmentPayload(speaker="Host2", voice="Avinash", text=h2_text, turn_count=0, segment_index=1),
+        ]
         return StartSparResponse(
             session_id=session_id,
-            mode="podcast",
+            mode=req.mode,
             rigor=req.rigor,
-            intro_text=intro_text,
-            dialogue=payload_dialogue
+            intro_text=f"{h1_text} {h2_text}",
+            dialogue=fallback_dialogue,
         )
-
-    # Sparring Arena mode (1 on 1)
-    session = SparSession(
-        topic_id=req.topic_id,
-        topic_summary=topic["summary"],
-        opening_trap=topic["opening_trap"],
-        language=req.language,
-        rigor=req.rigor,
-        stage=Stage.INTRO,
-        topic_dossier=topic.get("dossier","")
-    )
-    # Initialize Gemini context cache / prompt
-    await init_session_cache(session)
-    spar_kickoff = "Let's start."
-    if req.language == "hi-IN":
-        spar_kickoff = "चलो बातचीत शुरू करते हैं।"
-    elif req.language == "pa-IN":
-        spar_kickoff = "ਚਲੋ ਗੱਲਬਾਤ ਸ਼ੁਰੂ ਕਰਦੇ ਹਾਂ।"
-    elif req.language == "te-IN":
-        spar_kickoff = "చర్చను ప్రారంభిద్దాం."
-    intro_text, _ = await get_next_turn(session, spar_kickoff)
-    _sessions[session_id] = session
-
-    return StartSparResponse(
-        session_id=session_id, 
-        mode="spar", 
-        rigor=req.rigor,
-        intro_text=intro_text
-    )
 
 
 @router.post("/turn/text", response_model=TurnTextResponse)
