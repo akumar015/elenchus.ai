@@ -100,7 +100,7 @@ async def synthesize_speech(
         "language": language,
         "speed": speed,
         "audio_config": {
-            "sample_rate": 48000,
+            "sample_rate": 24000,
             "encoding": "linear_pcm",
             "container": "wav",
         },

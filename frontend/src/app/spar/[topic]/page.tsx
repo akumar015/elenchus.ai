@@ -71,6 +71,7 @@ export default function SparringArenaPage() {
     setStage,
     setComplete,
     setError,
+    setLastTopicInsight,
     resetSession,
   } = useSparStore();
 
@@ -95,6 +96,11 @@ export default function SparringArenaPage() {
   // Push-to-talk recording lifecycle refs (ref-based for synchronous state tracking and zero stale closures)
   const isSpeakingRef = useRef<boolean>(false);
   const startPromiseRef = useRef<Promise<void> | null>(null);
+  const sessionIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    sessionIdRef.current = sessionId;
+  }, [sessionId]);
 
   // Helper: Stop all current and queued audio playback immediately
   const stopAudioPlayback = useCallback(() => {
@@ -203,8 +209,11 @@ export default function SparringArenaPage() {
     (
       dialogue: DialogueSegmentPayload[],
       turnStage: string,
-      topicInsight?: string | null
+      topicInsight?: string | null,
+      explicitSessionId?: string
     ) => {
+      isStoppedRef.current = false;
+      const activeSessionId = explicitSessionId || sessionIdRef.current || sessionId || useSparStore.getState().sessionId;
       const queue: AudioQueueItem[] = [];
 
       dialogue.forEach((seg, idx) => {
@@ -240,6 +249,41 @@ export default function SparringArenaPage() {
           } catch (e) {
             console.warn("Failed to decode audio segment:", e);
           }
+        } else if (activeSessionId && seg.turn_count !== undefined) {
+          // Decoupled follower segment: synthesize in background and append to playback queue
+          const targetSpeaker = isHost2 ? "host2" : "idle";
+          const segIdx = seg.segment_index !== undefined ? seg.segment_index : idx;
+          const targetTurn = seg.turn_count;
+
+          const fetchFollowerAudio = async (retries = 3) => {
+            for (let attempt = 0; attempt < retries; attempt++) {
+              if (isStoppedRef.current) return;
+              try {
+                const res = await api.getSegmentAudio(activeSessionId, targetTurn, segIdx);
+                if (res.ready && res.audio_base64 && !isStoppedRef.current) {
+                  try {
+                    const blob = base64ToWavBlob(res.audio_base64);
+                    audioQueueRef.current.push({ speaker: targetSpeaker, blob });
+                    console.log(`[AUDIO PIPELINE] Background audio arrived for ${targetSpeaker} (queue size: ${audioQueueRef.current.length})`);
+                    // If Host 1 already finished, resume cascade immediately
+                    if (!isPlayingQueueRef.current && !audioMuted) {
+                      isPlayingQueueRef.current = true;
+                      playNextInQueue();
+                    }
+                  } catch (decodeErr) {
+                    console.warn("Failed to decode background audio segment:", decodeErr);
+                  }
+                  return;
+                }
+              } catch (err) {
+                console.warn(`[AUDIO PIPELINE] Background segment fetch error (attempt ${attempt + 1}):`, err);
+              }
+              if (attempt < retries - 1 && !isStoppedRef.current) {
+                await new Promise((resolve) => setTimeout(resolve, 800));
+              }
+            }
+          };
+          fetchFollowerAudio();
         }
       });
 
@@ -250,7 +294,7 @@ export default function SparringArenaPage() {
         setActiveSpeaker("idle");
       }
     },
-    [addTurn, enqueueAndPlayAudio, language, setActiveSpeaker, setMicStatus]
+    [addTurn, audioMuted, enqueueAndPlayAudio, language, playNextInQueue, setActiveSpeaker, setMicStatus]
   );
 
 
@@ -266,6 +310,7 @@ export default function SparringArenaPage() {
   // 1. Initialize Topic & Session on mount
   useEffect(() => {
     isMountedRef.current = true;
+    isStoppedRef.current = false;
     if (initializedRef.current) return;
     initializedRef.current = true;
 
@@ -305,11 +350,12 @@ export default function SparringArenaPage() {
       .startSpar(topicId, language, mode, user?.name)
       .then((res) => {
         if (!isMountedRef.current) return;
+        sessionIdRef.current = res.session_id;
         setSession(res.session_id, res.intro_text);
         setLoading(false);
 
         if (res.dialogue && res.dialogue.length > 0) {
-          ingestDialogueSegments(res.dialogue, "STUDIO", null);
+          ingestDialogueSegments(res.dialogue, "STUDIO", null, res.session_id);
         } else {
           // Sparring mode fallback audio fetch
           addTurn("AI", res.intro_text, "INTRO");
@@ -347,21 +393,9 @@ export default function SparringArenaPage() {
         recorderRef.current.stop().catch(() => {});
       }
     };
-  }, [
-    topicId,
-    language,
-    mode,
-    user?.name,
-    resetSession,
-    setSession,
-    setLoading,
-    setError,
-    setAudioLevel,
-    stopAudioPlayback,
-    ingestDialogueSegments,
-    addTurn,
-    playAudioBlob,
-  ]);
+    // Only initialize session once on mount for the given topic
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [topicId]);
 
   // Stop playback on browser back/forward or page unload
   useEffect(() => {
@@ -407,25 +441,76 @@ export default function SparringArenaPage() {
         return;
       }
 
-      const res = await api.sendTurnAudio(sessionId, audioBlob, language);
+      isStoppedRef.current = false;
 
-      // Ingest user transcript
-      addTurn("USER", res.userTranscript);
-      setStage(res.stage);
-      setComplete(res.isComplete);
+      await api.sendTurnAudioStream(
+        sessionId,
+        audioBlob,
+        {
+          onTranscript: (text: string) => {
+            // Emitted immediately upon STT completion (~1.5s into turn)
+            addTurn("USER", text);
+            setMicStatus("thinking");
+          },
+          onSegment: (seg: DialogueSegmentPayload) => {
+            if (isStoppedRef.current) return;
 
-      if (res.dialogue && res.dialogue.length > 0) {
-        // Multi-speaker Podcast Turn
-        ingestDialogueSegments(res.dialogue, res.stage, res.topic_insight);
-      } else {
-        // Socratic Sparring Turn (1-on-1)
-        addTurn("AI", res.aiResponse, res.stage);
-        if (res.audioBlob && res.audioBlob.size > 0) {
-          playAudioBlob(res.audioBlob);
-        } else {
-          setMicStatus("idle");
-        }
-      }
+            const isHost1 = seg.speaker === "Host1";
+            const isHost2 = seg.speaker === "Host2";
+            const role = isHost1 ? "HOST1" : isHost2 ? "HOST2" : "AI";
+            const speakerName = isHost1
+              ? language === "hi-IN"
+                ? "Shivani"
+                : language === "pa-IN"
+                ? "Tarika"
+                : language === "te-IN"
+                ? "Lakshmi"
+                : "Kalpana"
+              : isHost2
+              ? "Avinash"
+              : "Elenchus Core";
+
+            // Ingest segment into transcript feed
+            addTurn(role, seg.text, "STUDIO", {
+              speakerName,
+              speakerVoice: seg.voice,
+              audio_base64: seg.audio_base64,
+            });
+
+            // Decode and enqueue 24kHz synthesized audio
+            if (seg.audio_base64 && !isStoppedRef.current) {
+              try {
+                const blob = base64ToWavBlob(seg.audio_base64);
+                const targetSpeaker: ActiveSpeaker = isHost1 ? "host1" : isHost2 ? "host2" : "host1";
+                const item: AudioQueueItem = { speaker: targetSpeaker, blob };
+
+                audioQueueRef.current.push(item);
+                if (!isPlayingQueueRef.current && !audioMuted) {
+                  isPlayingQueueRef.current = true;
+                  playNextInQueue();
+                }
+              } catch (e) {
+                console.warn("Failed to decode audio segment:", e);
+              }
+            }
+          },
+          onMetadata: (meta) => {
+            if (meta.stage) setStage(meta.stage as DialecticStage);
+            if (meta.is_complete !== undefined) setComplete(meta.is_complete);
+            if (meta.topic_insight) setLastTopicInsight(meta.topic_insight);
+          },
+          onDone: () => {
+            if (!isPlayingQueueRef.current && audioQueueRef.current.length === 0) {
+              setMicStatus("idle");
+              setActiveSpeaker("idle");
+            }
+          },
+          onError: (err) => {
+            console.warn("Streaming audio turn error:", err);
+          },
+        },
+        language
+      );
     } catch (err: unknown) {
       console.warn("Spoken turn aborted or too short:", err);
       const msg = err instanceof Error ? err.message : "Error exchanging spoken turn";
@@ -445,8 +530,9 @@ export default function SparringArenaPage() {
     addTurn,
     setStage,
     setComplete,
-    ingestDialogueSegments,
-    playAudioBlob,
+    setLastTopicInsight,
+    audioMuted,
+    playNextInQueue,
     setError,
     setMicStatus,
     setActiveSpeaker,
@@ -520,7 +606,7 @@ export default function SparringArenaPage() {
       setComplete(res.is_complete);
 
       if (res.dialogue && res.dialogue.length > 0) {
-        ingestDialogueSegments(res.dialogue, res.stage, res.topic_insight);
+        ingestDialogueSegments(res.dialogue, res.stage, res.topic_insight, res.session_id || sessionId);
       } else {
         addTurn("AI", res.ai_response, res.stage);
         setMicStatus("idle");

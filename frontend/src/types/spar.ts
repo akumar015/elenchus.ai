@@ -26,6 +26,8 @@ export interface DialogueSegmentPayload {
   voice: string;   // "Kalpana" | "Shivani" | "Avinash"
   text: string;
   audio_base64?: string | null;
+  turn_count?: number;
+  segment_index?: number;
 }
 
 export interface StartSparResponse {

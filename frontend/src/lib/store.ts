@@ -67,6 +67,7 @@ interface SparState {
   setComplete: (isComplete: boolean) => void;
   setActiveAudioUrl: (url: string | null) => void;
   setError: (err: string | null) => void;
+  setLastTopicInsight: (insight: string | null) => void;
   resetSession: () => void;
 }
 
@@ -176,6 +177,19 @@ export const useSparStore = create<SparState>((set) => ({
   setActiveAudioUrl: (activeAudioUrl) => set({ activeAudioUrl }),
 
   setError: (errorMessage) => set({ errorMessage }),
+
+  setLastTopicInsight: (insight) =>
+    set((state) => {
+      if (state.turns.length === 0 || !insight) return state;
+      const turns = [...state.turns];
+      for (let i = turns.length - 1; i >= 0; i--) {
+        if (turns[i].role === "HOST1" || turns[i].role === "AI") {
+          turns[i] = { ...turns[i], topic_insight: insight };
+          break;
+        }
+      }
+      return { turns };
+    }),
 
   resetSession: () =>
     set({

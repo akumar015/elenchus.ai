@@ -7,6 +7,8 @@ Orchestrates a 3-way interactive podcast:
 Generates structured multi-speaker turns with zero-latency parallel audio ready.
 """
 
+import json
+import time
 from dataclasses import dataclass, field
 from typing import Literal
 from pydantic import BaseModel, Field
@@ -59,6 +61,7 @@ class PodcastSession:
     history: list[dict] = field(default_factory=list)  # [{"role": "Host1"|"Host2"|"Guest", "text":"..."}]
     turn_count: int = 0
     is_complete: bool = False
+    pending_audio: dict[str, str] = field(default_factory=dict)  # Key: f"{turn_count}_{seg_idx}" -> base64
 
 
 # Studio Prompts (English & Hinglish)
@@ -295,3 +298,126 @@ async def get_next_podcast_turn(
     session.is_complete = turn.is_complete
 
     return turn
+
+
+def _extract_completed_segments(buffer: str, parsed_count: int) -> tuple[list[dict], int]:
+    """Extract fully closed dialogue segment dicts from an incomplete JSON stream."""
+    new_segments = []
+    diag_start = buffer.find('"dialogue"')
+    if diag_start == -1:
+        return new_segments, parsed_count
+
+    bracket_start = buffer.find('[', diag_start)
+    if bracket_start == -1:
+        return new_segments, parsed_count
+
+    in_string = False
+    escape = False
+    brace_depth = 0
+    seg_start = -1
+    found_objects = []
+
+    for i in range(bracket_start + 1, len(buffer)):
+        ch = buffer[i]
+        if escape:
+            escape = False
+            continue
+        if ch == '\\':
+            escape = True
+            continue
+        if ch == '"':
+            in_string = not in_string
+            continue
+        if in_string:
+            continue
+
+        if ch == '{':
+            if brace_depth == 0:
+                seg_start = i
+            brace_depth += 1
+        elif ch == '}':
+            brace_depth -= 1
+            if brace_depth == 0 and seg_start != -1:
+                found_objects.append(buffer[seg_start:i + 1])
+                seg_start = -1
+
+    for idx in range(parsed_count, len(found_objects)):
+        try:
+            parsed = json.loads(found_objects[idx])
+            if "speaker" in parsed and "text" in parsed:
+                new_segments.append(parsed)
+        except Exception:
+            pass
+
+    return new_segments, len(found_objects)
+
+
+async def stream_podcast_turn_segments(
+    session: PodcastSession,
+    guest_input: str,
+):
+    """
+    Progressively yields completed DialogueSegments from Gemini stream,
+    followed by the final PodcastTurn metadata.
+    """
+    guest_input = guest_input.strip() or "Let's dive into the topic."
+    if session.turn_count > 0:
+        session.history.append({"role": "Guest", "text": guest_input})
+
+    contents = _build_conversation_contents(session, guest_input)
+    sys_instruction = _build_system_instruction(session)
+
+    gen_config = types.GenerateContentConfig(
+        system_instruction=sys_instruction,
+        temperature=0.85,
+        response_mime_type="application/json",
+        response_schema=PodcastTurn,
+        max_output_tokens=1500,
+    )
+
+    default_host1_voice = "Kalpana"
+    if session.language == "hi-IN":
+        default_host1_voice = "Shivani"
+    elif session.language == "pa-IN":
+        default_host1_voice = "Tarika"
+    elif session.language == "te-IN":
+        default_host1_voice = "Lakshmi"
+
+    for model_name in [PRIMARY_MODEL, FALLBACK_MODEL]:
+        try:
+            response_stream = await _client.aio.models.generate_content_stream(
+                model=model_name,
+                contents=contents,
+                config=gen_config,
+            )
+            accumulated = ""
+            parsed_count = 0
+            async for chunk in response_stream:
+                accumulated += (chunk.text or "")
+                new_segs, parsed_count = _extract_completed_segments(accumulated, parsed_count)
+                for seg_dict in new_segs:
+                    speaker = seg_dict.get("speaker", "Host1")
+                    voice = default_host1_voice if speaker == "Host1" else "Avinash"
+                    text = seg_dict.get("text", "")
+                    session.history.append({"role": speaker, "text": text})
+                    yield {"type": "segment", "data": DialogueSegment(speaker=speaker, voice=voice, text=text)}
+
+            # Final parse for metadata
+            turn = PodcastTurn.model_validate_json(accumulated)
+            session.turn_count += 1
+            session.is_complete = turn.is_complete
+            yield {
+                "type": "metadata",
+                "directed_at_guest": turn.directed_at_guest,
+                "topic_insight": turn.topic_insight,
+                "is_complete": turn.is_complete,
+            }
+            return
+        except Exception as e:
+            try:
+                safe_err = str(e).encode("ascii", errors="backslashreplace").decode("ascii")
+                print(f"[PODCAST ENGINE STREAM] Model {model_name} failed: {safe_err}")
+            except Exception:
+                pass
+            if model_name == FALLBACK_MODEL:
+                raise

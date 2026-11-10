@@ -2,6 +2,7 @@ import { Topic } from "@/types/topic";
 import {
   DialecticMode,
   DialecticStage,
+  DialogueSegmentPayload,
   EndSparResponse,
   SparLanguage,
   StartSparResponse,
@@ -135,6 +136,19 @@ export const api = {
   },
 
   /**
+   * Fetch background-synthesized audio for a secondary host segment
+   */
+  async getSegmentAudio(
+    sessionId: string,
+    turnCount: number,
+    segmentIndex: number
+  ): Promise<{ audio_base64: string | null; ready: boolean }> {
+    return request<{ audio_base64: string | null; ready: boolean }>(
+      `/spar/session/${encodeURIComponent(sessionId)}/segment-audio?turn_count=${turnCount}&segment_index=${segmentIndex}`
+    );
+  },
+
+  /**
    * Submit text turn to the engine (JSON body)
    */
   async sendTurnText(
@@ -220,6 +234,98 @@ export const api = {
       audioBlob: returnedAudioBlob,
       dialogue: null,
     };
+  },
+
+  /**
+   * Progressive SSE Streaming turn (Phase 4 low-latency pipeline):
+   * Emits user transcript immediately (t=~1.5s), then streams dialogue segments
+   * with 24kHz synthesized audio for near-instant playback.
+   */
+  async sendTurnAudioStream(
+    sessionId: string,
+    audioBlob: Blob,
+    callbacks: {
+      onTranscript: (text: string) => void;
+      onSegment: (segment: DialogueSegmentPayload) => void;
+      onMetadata: (meta: {
+        stage?: DialecticStage | string;
+        directed_at_guest?: boolean;
+        topic_insight?: string | null;
+        is_complete?: boolean;
+      }) => void;
+      onError?: (err: unknown) => void;
+      onDone?: () => void;
+    },
+    language?: SparLanguage
+  ): Promise<void> {
+    const formData = new FormData();
+    formData.append("audio", audioBlob, "recording.wav");
+    const langParam = language ? `&language=${encodeURIComponent(language)}` : "";
+    const url = `${API_BASE_URL}/spar/turn/stream?session_id=${encodeURIComponent(sessionId)}${langParam}`;
+
+    const response = await fetch(url, {
+      method: "POST",
+      body: formData,
+    });
+
+    if (!response.ok || !response.body) {
+      let errorDetail = `Streaming turn failed with status ${response.status}`;
+      try {
+        const errorJson = await response.json();
+        errorDetail = errorJson.detail || errorDetail;
+      } catch {
+        // fallback
+      }
+      throw new ApiError(errorDetail, response.status);
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder("utf-8");
+    let buffer = "";
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const blocks = buffer.split("\n\n");
+        buffer = blocks.pop() || "";
+
+        for (const block of blocks) {
+          if (!block.trim()) continue;
+          let eventType = "";
+          let dataStr = "";
+          for (const line of block.split("\n")) {
+            if (line.startsWith("event:")) {
+              eventType = line.slice(6).trim();
+            } else if (line.startsWith("data:")) {
+              dataStr = line.slice(5).trim();
+            }
+          }
+
+          if (!eventType || !dataStr) continue;
+
+          try {
+            const data = JSON.parse(dataStr);
+            if (eventType === "transcript") {
+              callbacks.onTranscript(data.text || "");
+            } else if (eventType === "segment") {
+              callbacks.onSegment(data as DialogueSegmentPayload);
+            } else if (eventType === "metadata") {
+              callbacks.onMetadata(data);
+            } else if (eventType === "done") {
+              callbacks.onDone?.();
+            }
+          } catch (parseErr) {
+            console.error("Error parsing SSE block:", parseErr, block);
+          }
+        }
+      }
+      callbacks.onDone?.();
+    } catch (err) {
+      callbacks.onError?.(err);
+      throw err;
+    }
   },
 
   /**
