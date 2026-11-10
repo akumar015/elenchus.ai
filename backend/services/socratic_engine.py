@@ -48,6 +48,7 @@ class SparSession:
     topic_summary: str
     opening_trap: str
     language: str = "en-IN"
+    rigor: str = "balanced"
     stage: Stage = Stage.INTRO
     history: list[Turn] = field(default_factory=list)
     turn_count: int = 0
@@ -358,8 +359,28 @@ def _build_static_system_prompt(session: SparSession) -> str:
         else f"\n\n TOPIC CONTEXT: {session.topic_summary}"
     )
 
+    rigor_directive = ""
+    if session.rigor == "mentor":
+        rigor_directive = (
+            "\nSOCRATIC RIGOR DIRECTIVE: LEVEL 1 (MENTOR / EXPLORATORY)\n"
+            "- Guide the user gently with scaffolded questioning and patience.\n"
+            "- Acknowledge valid intuitions before testing blind spots.\n"
+        )
+    elif session.rigor in {"expert", "hardcore"}:
+        rigor_directive = (
+            "\nSOCRATIC RIGOR DIRECTIVE: LEVEL 3 (EXPERT SPARRING)\n"
+            "- Zero tolerance for ungrounded assumptions, clichés, or deflections.\n"
+            "- Interrogate logical fallacies aggressively; demand precise operational definitions.\n"
+        )
+    else:
+        rigor_directive = (
+            "\nSOCRATIC RIGOR DIRECTIVE: LEVEL 2 (BALANCED DIALECTIC)\n"
+            "- Sharp, firm anti-sycophantic cross-examination with respectful friction.\n"
+        )
+
     return (
         f"{persona}\n\n"
+        f"{rigor_directive}\n\n"
         f"{examples}\n"
         f"{dossier_block}\n"
         f"OPENING TRAP (use only in INTRO stage): {session.opening_trap}"

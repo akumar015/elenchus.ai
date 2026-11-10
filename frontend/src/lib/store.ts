@@ -5,6 +5,7 @@ import {
   DialecticMode,
   DialecticStage,
   MicStatus,
+  SocraticRigor,
   SparLanguage,
   SpeakerRole,
   Turn,
@@ -29,6 +30,7 @@ interface SparState {
   sessionId: string | null;
   mode: DialecticMode;
   language: SparLanguage;
+  rigor: SocraticRigor;
   stage: DialecticStage | string;
   isComplete: boolean;
 
@@ -48,6 +50,7 @@ interface SparState {
   setCurrentTopic: (topic: Topic | null) => void;
   setMode: (mode: DialecticMode) => void;
   setLanguage: (lang: SparLanguage) => void;
+  setRigor: (rigor: SocraticRigor) => void;
   setSession: (sessionId: string, introText?: string) => void;
   addTurn: (
     role: SpeakerRole,
@@ -87,6 +90,14 @@ export const useSparStore = create<SparState>((set) => ({
   sessionId: null,
   mode: "podcast",
   language: "en-IN",
+  rigor:
+    typeof window !== "undefined"
+      ? (() => {
+          const stored = localStorage.getItem("elenchus_dialectic_rigor");
+          if (stored === "hardcore") return "expert";
+          return (stored as SocraticRigor) || "balanced";
+        })()
+      : "balanced",
   stage: "INTRO",
   isComplete: false,
   turns: [],
@@ -127,6 +138,17 @@ export const useSparStore = create<SparState>((set) => ({
   setMode: (mode) => set({ mode }),
 
   setLanguage: (language) => set({ language }),
+
+  setRigor: (rigor) => {
+    if (typeof window !== "undefined") {
+      try {
+        localStorage.setItem("elenchus_dialectic_rigor", rigor);
+      } catch {
+        // ignore
+      }
+    }
+    set({ rigor });
+  },
 
   setSession: (sessionId, introText) =>
     set({

@@ -21,7 +21,7 @@ import {
 
 export default function StudioHubPage() {
   const router = useRouter();
-  const { user, mode, language, setMode, setLanguage, setCurrentTopic } = useSparStore();
+  const { user, mode, language, rigor, setMode, setLanguage, setRigor, setCurrentTopic } = useSparStore();
 
   const [topics, setTopics] = useState<Topic[]>(STARTER_TOPICS);
   const [loadingTopics, setLoadingTopics] = useState(true);
@@ -269,6 +269,74 @@ export default function StudioHubPage() {
                   <span className={`hidden sm:inline-block text-[10px] ${mode === "spar" ? "text-[#fbfbf9]/75" : "text-[#0f0f10]/40"}`}>
                     [1-on-1 Duel]
                   </span>
+                </button>
+              </div>
+            </div>
+
+            {/* Middle: Socratic Rigor Switcher */}
+            <div className="space-y-1.5">
+              <span className="font-mono text-[10px] uppercase tracking-wider text-[#0f0f10]/50 block">
+                Socratic Rigor
+              </span>
+              <div
+                role="radiogroup"
+                aria-label="Socratic Rigor"
+                className="relative inline-flex p-1.5 bg-[#0f0f10]/[0.05] rounded-xl w-full sm:w-auto"
+              >
+                {/* Sliding active color background */}
+                <div
+                  className={`absolute top-1.5 bottom-1.5 w-[calc(33.333%-4px)] bg-[#b8945c] rounded-lg shadow-xs transition-all duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] ${
+                    rigor === "mentor"
+                      ? "left-1.5"
+                      : rigor === "balanced"
+                      ? "left-[calc(33.333%+1px)]"
+                      : "left-[calc(66.666%+1px)]"
+                  }`}
+                />
+
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={rigor === "mentor"}
+                  onClick={() => setRigor("mentor")}
+                  className={`relative z-10 flex-1 min-w-[85px] sm:min-w-[100px] flex items-center justify-center text-center px-3 py-2 font-mono text-xs rounded-lg transition-colors duration-500 ${
+                    rigor === "mentor"
+                      ? "text-[#fbfbf9] font-medium"
+                      : "text-[#0f0f10]/70 hover:text-[#0f0f10]"
+                  }`}
+                  title="Level 1: Gentle inquiry, supportive scaffolding"
+                >
+                  <span>Mentor</span>
+                </button>
+
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={rigor === "balanced"}
+                  onClick={() => setRigor("balanced")}
+                  className={`relative z-10 flex-1 min-w-[85px] sm:min-w-[100px] flex items-center justify-center text-center px-3 py-2 font-mono text-xs rounded-lg transition-colors duration-500 ${
+                    rigor === "balanced"
+                      ? "text-[#fbfbf9] font-medium"
+                      : "text-[#0f0f10]/70 hover:text-[#0f0f10]"
+                  }`}
+                  title="Level 2: Standard studio debate with firm anti-sycophancy"
+                >
+                  <span>Balanced</span>
+                </button>
+
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={rigor === "expert" || rigor === "hardcore"}
+                  onClick={() => setRigor("expert")}
+                  className={`relative z-10 flex-1 min-w-[85px] sm:min-w-[100px] flex items-center justify-center text-center px-3 py-2 font-mono text-xs rounded-lg transition-colors duration-500 ${
+                    rigor === "expert" || rigor === "hardcore"
+                      ? "text-[#fbfbf9] font-medium"
+                      : "text-[#0f0f10]/70 hover:text-[#0f0f10]"
+                  }`}
+                  title="Level 3: Ruthless intellectual cross-examination. Zero mercy for fallacies."
+                >
+                  <span>Expert</span>
                 </button>
               </div>
             </div>

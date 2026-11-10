@@ -2,6 +2,8 @@ export type DialecticStage = "INTRO" | "CHALLENGE" | "PUSHBACK" | "DEEPEN" | "WR
 
 export type DialecticMode = "podcast" | "spar";
 
+export type SocraticRigor = "mentor" | "balanced" | "expert" | "hardcore";
+
 export type SparLanguage = "en-IN" | "hi-IN" | "pa-IN" | "te-IN";
 
 export type MicStatus = "idle" | "listening" | "thinking" | "speaking" | "error";
@@ -34,6 +36,7 @@ export interface StartSparResponse {
   session_id: string;
   intro_text: string;
   mode?: DialecticMode;
+  rigor?: SocraticRigor;
   dialogue?: DialogueSegmentPayload[];
 }
 

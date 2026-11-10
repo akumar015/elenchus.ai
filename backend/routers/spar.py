@@ -57,6 +57,7 @@ class StartSparRequest(BaseModel):
     language: str = "en-IN"  # "en-IN" | "hi-IN"
     mode: Literal["spar", "podcast"] = "podcast"
     user_name: str = "Guest"
+    rigor: Literal["mentor", "balanced", "expert", "hardcore"] = "balanced"
 
 
 class DialogueSegmentPayload(BaseModel):
@@ -71,8 +72,13 @@ class DialogueSegmentPayload(BaseModel):
 class StartSparResponse(BaseModel):
     session_id: str
     intro_text: str  # The AI's opening trap (text)
-    mode: str= "spar"
-    dialogue: list[DialogueSegmentPayload] | None= None
+    mode: str = "spar"
+    rigor: str = "balanced"
+    dialogue: list[DialogueSegmentPayload] | None = None
+
+
+class RigorUpdateRequest(BaseModel):
+    rigor: Literal["mentor", "balanced", "expert", "hardcore"]
 
 
 class TurnTextRequest(BaseModel):
@@ -221,29 +227,39 @@ async def start_spar(req: StartSparRequest) -> StartSparResponse:
     session_id = str(uuid.uuid4())
     print(f"[START SPAR] Generated session_id={session_id}, mode={req.mode}, topic={req.topic_id}")
 
-    if req.mode== "podcast":
-        session= PodcastSession(
+    if req.mode == "podcast":
+        session = PodcastSession(
             topic_id=req.topic_id,
             topic_title=topic.get("title", req.topic_id),
             topic_summary=topic.get("summary", ""),
             topic_dossier=topic.get("dossier", ""),
-            language= req.language,
+            language=req.language,
             user_name=req.user_name,
+            rigor=req.rigor,
         )
         _sessions[session_id] = session
-        print(f"[START SPAR] Registered session_id={session_id} immediately. Known: {list(_sessions.keys())}")
+        print(f"[START SPAR] Registered session_id={session_id} immediately (rigor={req.rigor}). Known: {list(_sessions.keys())}")
 
-        # Kickoff initial podcst Dialogue
-        turn = await get_next_podcast_turn(session, "Let's start the show.")
+        # Kickoff initial podcast Dialogue in native language
+        kickoff_text = "Let's start the show."
+        if req.language == "hi-IN":
+            kickoff_text = "चलो बातचीत शुरू करते हैं।"
+        elif req.language == "pa-IN":
+            kickoff_text = "ਚਲੋ ਗੱਲਬਾਤ ਸ਼ੁਰੂ ਕਰਦੇ ਹਾਂ।"
+        elif req.language == "te-IN":
+            kickoff_text = "చర్చను ప్రారంభిద్దాం."
+
+        turn = await get_next_podcast_turn(session, kickoff_text)
         payload_dialogue = await _synthesize_podcast_dialogue(turn.dialogue, req.language, session=session)
-        _sessions[session_id]= session
+        _sessions[session_id] = session
         print(f"[START SPAR] Completed initial dialogue for session_id={session_id}. Total sessions={len(_sessions)}")
 
-        intro_text= " ".join(seg.text for seg in turn.dialogue)
+        intro_text = " ".join(seg.text for seg in turn.dialogue)
 
         return StartSparResponse(
             session_id=session_id,
             mode="podcast",
+            rigor=req.rigor,
             intro_text=intro_text,
             dialogue=payload_dialogue
         )
@@ -254,19 +270,28 @@ async def start_spar(req: StartSparRequest) -> StartSparResponse:
         topic_summary=topic["summary"],
         opening_trap=topic["opening_trap"],
         language=req.language,
+        rigor=req.rigor,
         stage=Stage.INTRO,
         topic_dossier=topic.get("dossier","")
     )
     # Initialize Gemini context cache / prompt
     await init_session_cache(session)
-    intro_text, _ = await get_next_turn(session, "Let's start.")
-    _sessions[session_id]= session
+    spar_kickoff = "Let's start."
+    if req.language == "hi-IN":
+        spar_kickoff = "चलो बातचीत शुरू करते हैं।"
+    elif req.language == "pa-IN":
+        spar_kickoff = "ਚਲੋ ਗੱਲਬਾਤ ਸ਼ੁਰੂ ਕਰਦੇ ਹਾਂ।"
+    elif req.language == "te-IN":
+        spar_kickoff = "చర్చను ప్రారంభిద్దాం."
+    intro_text, _ = await get_next_turn(session, spar_kickoff)
+    _sessions[session_id] = session
 
     return StartSparResponse(
         session_id=session_id, 
         mode="spar", 
+        rigor=req.rigor,
         intro_text=intro_text
-        )
+    )
 
 
 @router.post("/turn/text", response_model=TurnTextResponse)
@@ -346,7 +371,14 @@ async def start_spar_audio(
     # Initialize Gemini context cache / prompt
     await init_session_cache(session)
 
-    intro_text, _ = await get_next_turn(session, "Let's start.")
+    audio_kickoff = "Let's start."
+    if language == "hi-IN":
+        audio_kickoff = "चलो बातचीत शुरू करते हैं।"
+    elif language == "pa-IN":
+        audio_kickoff = "ਚਲੋ ਗੱਲਬਾਤ ਸ਼ੁਰੂ ਕਰਦੇ ਹਾਂ।"
+    elif language == "te-IN":
+        audio_kickoff = "చర్చను ప్రారంభిద్దాం."
+    intro_text, _ = await get_next_turn(session, audio_kickoff)
     _sessions[session_id] = session
 
     # Synthesize intro as audio (auto-routes to Shivani if hi-IN, Kalpana if en-IN)
@@ -398,6 +430,30 @@ async def update_session_language(
         "session_id": session_id,
         "language": req.language,
         "voice": voice_name,
+    }
+
+
+@router.post("/session/{session_id}/rigor")
+async def update_session_rigor(
+    session_id: str,
+    req: RigorUpdateRequest,
+) -> dict:
+    """
+    Dynamically update the Socratic rigor / cognitive intensity of an active sparring session.
+    Options: 'mentor' (supportive inquiry), 'balanced' (standard roundtable), 'hardcore' (unforgiving sparring).
+    """
+    session = _sessions.get(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    session.rigor = req.rigor
+    if isinstance(session, SparSession):
+        session.static_prompt = _build_static_system_prompt(session)
+
+    return {
+        "status": "ok",
+        "session_id": session_id,
+        "rigor": req.rigor,
     }
 
 
@@ -637,7 +693,13 @@ async def spar_turn_stream(
             except Exception as e:
                 pass
 
-            voice_name = "Kalpana" if session.language == "en-IN" else "Shivani"
+            voice_name = "Kalpana"
+            if session.language == "hi-IN":
+                voice_name = "Shivani"
+            elif session.language == "pa-IN":
+                voice_name = "Tarika"
+            elif session.language == "te-IN":
+                voice_name = "Lakshmi"
             payload = {
                 "speaker": "AI",
                 "voice": voice_name,

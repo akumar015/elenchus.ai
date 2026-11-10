@@ -4,6 +4,7 @@ import {
   DialecticStage,
   DialogueSegmentPayload,
   EndSparResponse,
+  SocraticRigor,
   SparLanguage,
   StartSparResponse,
   TurnAudioResponse,
@@ -80,7 +81,8 @@ export const api = {
     topicId: string,
     language: SparLanguage = "en-IN",
     mode: DialecticMode = "podcast",
-    userName?: string
+    userName?: string,
+    rigor: SocraticRigor = "balanced"
   ): Promise<StartSparResponse> {
     return request<StartSparResponse>("/spar/start", {
       method: "POST",
@@ -89,6 +91,7 @@ export const api = {
         language,
         mode,
         user_name: userName,
+        rigor,
       }),
     });
   },
@@ -99,11 +102,12 @@ export const api = {
   async startSparAudio(
     topicId: string,
     language: SparLanguage = "en-IN",
-    mode: DialecticMode = "podcast"
+    mode: DialecticMode = "podcast",
+    rigor: SocraticRigor = "balanced"
   ): Promise<{ sessionId: string; stage: DialecticStage; introText: string; audioBlob: Blob }> {
     const url = `${API_BASE_URL}/spar/start/audio?topic_id=${encodeURIComponent(
       topicId
-    )}&language=${encodeURIComponent(language)}&mode=${encodeURIComponent(mode)}`;
+    )}&language=${encodeURIComponent(language)}&mode=${encodeURIComponent(mode)}&rigor=${encodeURIComponent(rigor)}`;
     const response = await fetch(url, { method: "POST" });
 
     if (!response.ok) {
@@ -131,6 +135,22 @@ export const api = {
       {
         method: "POST",
         body: JSON.stringify({ language }),
+      }
+    );
+  },
+
+  /**
+   * Dynamically switch Socratic rigor for an active session
+   */
+  async updateSessionRigor(
+    sessionId: string,
+    rigor: SocraticRigor
+  ): Promise<{ status: string; session_id: string; rigor: string }> {
+    return request<{ status: string; session_id: string; rigor: string }>(
+      `/spar/session/${encodeURIComponent(sessionId)}/rigor`,
+      {
+        method: "POST",
+        body: JSON.stringify({ rigor }),
       }
     );
   },

@@ -55,6 +55,7 @@ export default function SparringArenaPage() {
     user,
     mode,
     language,
+    rigor,
     sessionId,
     stage,
     turns,
@@ -347,7 +348,7 @@ export default function SparringArenaPage() {
 
     // Start dialectic session (text/dialogue payload)
     api
-      .startSpar(topicId, language, mode, user?.name)
+      .startSpar(topicId, language, mode, user?.name, rigor)
       .then((res) => {
         if (!isMountedRef.current) return;
         sessionIdRef.current = res.session_id;
@@ -360,7 +361,7 @@ export default function SparringArenaPage() {
           // Sparring mode fallback audio fetch
           addTurn("AI", res.intro_text, "INTRO");
           api
-            .startSparAudio(topicId, language, mode)
+            .startSparAudio(topicId, language, mode, rigor)
             .then((audioRes) => {
               if (!isMountedRef.current) return;
               if (audioRes.audioBlob && audioRes.audioBlob.size > 0) {
@@ -869,15 +870,28 @@ export default function SparringArenaPage() {
                     : "INDIAN ENGLISH · KALPANA & AVINASH"}
                 </p>
               </div>
-              <span className="font-mono text-[10px] uppercase px-2 py-0.5 rounded-md bg-[#0f0f10]/[0.04] text-[#0f0f10]/60 font-medium">
-                {language === "hi-IN"
-                  ? "Hinglish (Shivani)"
-                  : language === "pa-IN"
-                  ? "Punjabi (Tarika)"
-                  : language === "te-IN"
-                  ? "Telugu (Lakshmi)"
-                  : "English (Kalpana)"}
-              </span>
+              <div className="flex items-center gap-1.5">
+                <span
+                  className={`font-mono text-[10px] uppercase px-2 py-0.5 rounded-md font-semibold border ${
+                    rigor === "mentor"
+                      ? "bg-emerald-50 text-emerald-800 border-emerald-300"
+                      : rigor === "expert" || rigor === "hardcore"
+                      ? "bg-rose-50 text-rose-800 border-rose-300"
+                      : "bg-amber-50 text-amber-800 border-amber-300"
+                  }`}
+                >
+                  {rigor === "mentor" ? "Mentor" : rigor === "expert" || rigor === "hardcore" ? "Expert" : "Balanced"}
+                </span>
+                <span className="font-mono text-[10px] uppercase px-2 py-0.5 rounded-md bg-[#0f0f10]/[0.04] text-[#0f0f10]/60 font-medium">
+                  {language === "hi-IN"
+                    ? "Hinglish (Shivani)"
+                    : language === "pa-IN"
+                    ? "Punjabi (Tarika)"
+                    : language === "te-IN"
+                    ? "Telugu (Lakshmi)"
+                    : "English (Kalpana)"}
+                </span>
+              </div>
             </div>
             <p className="text-xs text-[#0f0f10]/70 leading-relaxed font-normal">
               {mode === "podcast"
@@ -913,7 +927,7 @@ export default function SparringArenaPage() {
               placeholder={
                 sessionId
                   ? language === "hi-IN"
-                    ? "Apna counter-argument yahan type karo..."
+                    ? "अपना counter-argument यहाँ type करें..."
                     : language === "pa-IN"
                     ? "ਆਪਣਾ counter-argument ਇੱਥੇ ਲਿਖੋ..."
                     : language === "te-IN"

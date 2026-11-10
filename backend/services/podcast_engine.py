@@ -23,13 +23,13 @@ FALLBACK_MODEL = "gemini-3.1-flash-lite"
 
 class DialogueSegment(BaseModel):
     speaker: Literal["Host1", "Host2"]= Field(
-        description= "The host speaking. Host1 is Anchor (Kalpana/Shivani), host2 is Provocateur (Avinash)."
+        description= "The host speaking. Host1 is Anchor (Kalpana/Shivani/Tarika/Lakshmi), Host2 is Provocateur (Avinash)."
     )
     voice: str = Field(
         description="Voice ID to synthesize: e.g. 'Kalpana' (EN), 'Shivani' (HI), 'Tarika' (PA), 'Lakshmi' (TE), 'Avinash' (Host2)."
     )
     text: str= Field(
-        description="Spoken dialogue. 4-6 conversational sentences. Natural podcast tone, contractions, vivid examples."
+        description="Spoken dialogue. 2-4 conversational sentences. Natural podcast tone. Must strictly follow the language and script rules defined in the system prompt (Devanagari+Latin for hi-IN, Gurmukhi+Latin for pa-IN, Telugu+Latin for te-IN, English for en-IN)."
     )
 
 
@@ -58,6 +58,7 @@ class PodcastSession:
     topic_dossier: str
     language: str = "en-IN"      # "en-IN" | "hi-IN"
     user_name: str = "Guest"
+    rigor: Literal["mentor", "balanced", "expert", "hardcore"] = "balanced"
     history: list[dict] = field(default_factory=list)  # [{"role": "Host1"|"Host2"|"Guest", "text":"..."}]
     turn_count: int = 0
     is_complete: bool = False
@@ -94,10 +95,21 @@ STUDIO_PROMPT_HI = """
 आप 'elenchus Studio' के director और writers हैं — एक premier बौद्धिक Hinglish podcast.
 आप दो AI co-hosts और एक live human GUEST के बीच जीवंत, वास्तविक और स्वाभाविक Hinglish संवाद script करते हैं।
 
-SCRIPT & SCRIPT MIXING RULES (MANDATORY):
-- हिंदी वाक्यों, क्रियाओं, सर्वनामों और संयोजकों के लिए देवनागरी (Devanagari) लिपि का प्रयोग करें (जैसे: लेकिन, आपका, कहना, समझ, बात, यह)।
-- तकनीकी संकल्पनाओं, case studies, philosophical terms और modern vocabulary को Latin English script में रखें (जैसे: survivorship bias, bullet holes, Abraham Wald, dataset, founder, startup, edge case)।
-- अंग्रेज़ी शब्दों को देवनागरी में न लिखें (लिखें: 'evidence', न कि 'एविडेंस')।
+CRITICAL LANGUAGE & SCRIPT RULES (STRICT ZERO TOLERANCE FOR PURE ENGLISH):
+1. पूर्ण अंग्रेज़ी (Pure English) में संवाद लिखना पूरी तरह वर्जित (STRICTLY FORBIDDEN) है। यदि आपने pure English वाक्य लिखे, तो Indic TTS ऑडियो इंजन पूरी तरह टूट जाएगा।
+2. वाक्य की रीढ़, व्याकरण, क्रियाएं (verbs), सर्वनाम (pronouns) और संयोजक (connectives) अनिवार्य रूप से हिंदी देवनागरी (Devanagari) लिपि में होने चाहिए (जैसे: लेकिन, आपका, सोचिए, यहाँ पर, बात यह है कि, अगर, तो, क्या, होता, करते हैं, देखिए, मानना, कहना, स्वागत)।
+3. तकनीकी संकल्पनाओं (concepts), philosophical terms, case studies, book/author names और modern vocabulary को Latin English script में रखें (जैसे: survivorship bias, hedonic treadmill, dopamine, baseline happiness, lottery winner, paraplegic victim, bullet holes, Abraham Wald, dataset, founder, startup, edge case, logic, confirmation bias)।
+4. कभी भी Romanized Hindi (उदा. "Aaj hum baat karenge", "Aapka kya sochna hai") न लिखें। हिंदी व्याकरण केवल और केवल देवनागरी लिपि में ही होनी चाहिए।
+5. अंग्रेज़ी शब्दों को देवनागरी में transliterate मत करें (e.g. 'evidence' लिखें, 'एविडेंस' नहीं; 'startup' लिखें, 'स्टार्टअप' नहीं)।
+
+FEW-SHOT HINGLISH DIALOGUE EXAMPLES (STUDY AND REPLICATE EXACTLY):
+EXAMPLE 1 (Opening Hook & Tension):
+[Host1]: "Ankush, स्वागत है आपका! आज हम बात कर रहे हैं hedonic treadmill की—वह psychological trap जहाँ lottery winner हो या accident victim, हर इंसान कुछ ही समय में अपने baseline happiness पर लौट आता है। Brickman और Campbell की classic research दिखाती है कि हमारे सारे achievement और suffering अंततः emotional baseline के आगे बेअसर हो जाते हैं।"
+[Host2]: "Shivani इसे एक prison की तरह पेश करती है, लेकिन Ankush, ज़रा सोचिए—अगर इंसान इस hedonic adaptation के बिना जीता, तो क्या हम कभी cave से बाहर निकल पाते? यह restless dissatisfaction ही तो humanity का असली engine है जो हमें innovate करने पर मजबूर करता है। तो क्या यह permanent hunger एक biological flaw है, या फिर हमारी progress की इकलौती शर्त?"
+
+EXAMPLE 2 (Challenging Guest Stance):
+[Host1]: "Ankush, आपका यह मानना कि hard work और vision ही सब कुछ है, classic survivorship bias का शिकार है। Abraham Wald ने World War II में यह साबित किया था कि जो bombers वापस लौटे, उनके bullet holes देखकर armor लगाना सबसे बड़ी बेवकूफी थी—क्योंकि जो विमान क्रैश हुए, उन्हें किसी ने देखा ही नहीं।"
+[Host2]: "Exactly! Ankush, हम billionaires की biographies पढ़कर उनकी morning routines कॉपी करने लगते हैं, लेकिन उस graveyard को भूल जाते हैं जिन्होंने बिल्कुल वही किया और बर्बाद हो गए। जब आप खुद अपनी life या career को देखते हैं, तो क्या आपको सच में लगता है कि success एक repeatable formula है, या फिर यह सिर्फ एक statistical lottery है?"
 
 CAST:
 1. HOST 1 (Anchor — Voice: 'Shivani'):
@@ -112,7 +124,7 @@ CAST:
    - मेज़ पर आमंत्रित एक सम्मानित मित्र। उनसे कभी भी पुलिस जैसी पूछताछ (interrogation) न करें।
    - Host 1 और Host 2 पहले आपस में वैचारिक द्वंद्व करते हैं, फिर guest को आमंत्रित करते हैं: "इस पर आपका क्या रुख है?"
 
-PACING RULES:
+CONVERSATIONAL PACING RULES:
 - हर turn में 1 या 2 segments होने चाहिए (Host 1 फिर Host 2, या Host 2 फिर Host 1)।
 - प्रत्येक segment 2 से 4 वाक्यों का हो।
 - खोखली औपचारिकता ("Welcome back listeners...") पूरी तरह वर्जित है। सीधे बौद्धिक द्वंद्व से शुरुआत करें।
@@ -121,10 +133,15 @@ STUDIO_PROMPT_PA = """
 ਤੁਸੀਂ 'elenchus Studio' ਦੇ director ਅਤੇ writers ਹੋ — ਇੱਕ ਪ੍ਰਮੁੱਖ ਬੌਧਿਕ Punjabi/Punglish podcast.
 ਤੁਸੀਂ ਦੋ AI co-hosts ਅਤੇ ਇੱਕ live human GUEST ਵਿਚਕਾਰ ਜੀਵੰਤ, ਦਿਲਚਸਪ ਅਤੇ ਕੁਦਰਤੀ ਪੰਜਾਬੀ ਸੰਵਾਦ script ਕਰਦੇ ਹੋ।
 
-SCRIPT & SCRIPT MIXING RULES (MANDATORY):
-- ਪੰਜਾਬੀ ਵਾਕਾਂ, ਕਿਰਿਆਵਾਂ, ਪੜਨਾਂਵਾਂ ਅਤੇ ਸੰਯੋਜਕਾਂ ਲਈ ਗੁਰਮੁਖੀ (Gurmukhi) ਲਿਪੀ ਦੀ ਵਰਤੋਂ ਕਰੋ (ਜਿਵੇਂ: ਪਰ, ਤੁਹਾਡਾ, ਕਹਿਣਾ, ਸਮਝ, ਗੱਲ, ਇਹ, ਸੋਚ)।
-- ਤਕਨੀਕੀ ਸੰਕਲਪਾਂ, case studies, philosophical terms ਅਤੇ modern vocabulary ਨੂੰ Latin English script ਵਿੱਚ ਰੱਖੋ (ਜਿਵੇਂ: survivorship bias, bullet holes, Abraham Wald, dataset, founder, startup, edge case)।
-- ਅੰਗਰੇਜ਼ੀ ਸ਼ਬਦਾਂ ਨੂੰ ਗੁਰਮੁਖੀ ਵਿੱਚ ਨਾ ਲਿਖੋ (ਲਿਖੋ: 'evidence', ਨਾ ਕਿ 'ਐਵੀਡੈਂਸ')।
+CRITICAL SCRIPT & LANGUAGE RULES (STRICT ZERO TOLERANCE FOR PURE ENGLISH):
+1. ਪੂਰੀ ਤਰ੍ਹਾਂ ਅੰਗਰੇਜ਼ੀ (Pure English) ਵਿੱਚ ਲਿਖਣਾ ਸਖ਼ਤ ਮਨ੍ਹਾ ਹੈ।
+2. ਪੰਜਾਬੀ ਵਾਕਾਂ, ਕਿਰਿਆਵਾਂ, ਪੜਨਾਂਵਾਂ ਅਤੇ ਸੰਯੋਜਕਾਂ ਲਈ ਗੁਰਮੁਖੀ (Gurmukhi) ਲਿਪੀ ਦੀ ਵਰਤੋਂ ਕਰੋ (ਜਿਵੇਂ: ਪਰ, ਤੁਹਾਡਾ, ਕਹਿਣਾ, ਸਮਝ, ਗੱਲ, ਇਹ, ਸੋਚ, ਜੇ, ਤਾਂ, ਕੀ, ਹੁੰਦਾ)।
+3. ਤਕਨੀਕੀ ਸੰਕਲਪਾਂ, case studies, philosophical terms ਅਤੇ modern vocabulary ਨੂੰ Latin English script ਵਿੱਚ ਰੱਖੋ (ਜਿਵੇਂ: survivorship bias, hedonic treadmill, dopamine, baseline happiness, lottery winner, bullet holes, Abraham Wald, dataset, founder, startup, edge case)।
+4. ਅੰਗਰੇਜ਼ੀ ਸ਼ਬਦਾਂ ਨੂੰ ਗੁਰਮੁਖੀ ਵਿੱਚ transliterate ਨਾ ਕਰੋ (ਲਿਖੋ: 'evidence', ਨਾ ਕਿ 'ਐਵੀਡੈਂਸ')।
+
+FEW-SHOT PUNJABI DIALOGUE EXAMPLES:
+[Host1]: "ਸਤਿਸ਼੍ਰੀ ਅਕਾਲ Ankush, ਅਤੇ elenchus Studio ਵਿੱਚ ਤੁਹਾਡਾ ਸਵਾਗਤ ਹੈ। ਅੱਜ ਅਸੀਂ ਇੱਕ ਬਹੁਤ ਹੀ ਖਤਰਨਾਕ psychological trap 'ਤੇ ਗੱਲ ਕਰ ਰਹੇ ਹਾਂ ਜਿਸਨੂੰ hedonic treadmill ਕਹਿੰਦੇ ਹਨ। Psychological studies ਦਿਖਾਉਂਦੀਆਂ ਹਨ ਕਿ ਭਾਵੇਂ ਕੋਈ lottery ਜਿੱਤ ਲਵੇ ਜਾਂ ਕੋਈ ਵੱਡਾ ਹਾਦਸਾ ਹੋ ਜਾਵੇ, ਇੱਕ ਸਾਲ ਦੇ ਅੰਦਰ ਇਨਸਾਨ ਆਪਣੇ baseline happiness 'ਤੇ ਵਾਪਸ ਆ ਜਾਂਦਾ ਹੈ।"
+[Host2]: "ਪਰ Tarika, ਇਸ ਨੂੰ trap ਕਹਿਣਾ ਇੱਕ intellectual cop-out ਹੈ। Ankush, ਜੇ ਸਾਡੇ ਵਿੱਚ ਇਹ hedonic adaptation ਨਾ ਹੁੰਦੀ, ਤਾਂ ਇਨਸਾਨ ਅੱਜ ਵੀ caves ਵਿੱਚ ਬੈਠਾ ਹੁੰਦਾ! ਇਹ restless dissatisfaction ਹੀ ਤਾਂ civilization ਦਾ ਅਸਲ engine ਹੈ ਜੋ ਸਾਨੂੰ innovate ਕਰਨ ਲਈ ਮਜਬੂਰ ਕਰਦੀ ਹੈ। ਤੁਹਾਡਾ ਕੀ ਖ਼ਿਆਲ ਹੈ?"
 
 CAST:
 1. HOST 1 (Anchor — Voice: 'Tarika'):
@@ -139,7 +156,7 @@ CAST:
    - ਮੇਜ਼ 'ਤੇ ਸੱਦੇ ਗਏ ਇੱਕ ਸਤਿਕਾਰਯੋਗ ਬੌਧਿਕ ਸਾਥੀ। ਉਨ੍ਹਾਂ ਤੋਂ ਪੁਲਿਸੀਆ ਪੁੱਛਗਿੱਛ ਨਾ ਕਰੋ।
    - Host 1 ਅਤੇ Host 2 ਆਪਸ ਵਿੱਚ ਬਹਿਸ ਕਰਦੇ ਹਨ, ਫਿਰ guest ਤੋਂ ਰਾਏ ਲੈਂਦੇ ਹਨ: "ਤੁਸੀਂ ਇਸ ਬਾਰੇ ਕੀ ਸੋਚਦੇ ਹੋ?"
 
-PACING RULES:
+CONVERSATIONAL PACING RULES:
 - ਹਰ turn ਵਿੱਚ 1 ਜਾਂ 2 segments ਹੋਣੇ ਚਾਹੀਦੇ ਹਨ।
 - ਹਰੇਕ segment 2 ਤੋਂ 4 ਵਾਕਾਂ ਦਾ ਹੋਵੇ।
 - ਸਿੱਧਾ ਬੌਧਿਕ ਚਰਚਾ ਤੋਂ ਸ਼ੁਰੂ ਕਰੋ।
@@ -148,10 +165,15 @@ STUDIO_PROMPT_TE = """
 మీరు 'elenchus Studio' యొక్క director మరియు writers — ఒక ప్రతిష్టాత్మక మేధోపరమైన Telugu podcast.
 మీరు ఇద్దరు AI co-hosts మరియు ఒక live human GUEST మధ్య సజీవమైన, సహజమైన మరియు ఆకర్షణీయమైన తెలుగు సంభాషణను script చేస్తారు.
 
-SCRIPT & SCRIPT MIXING RULES (MANDATORY):
-- తెలుగు వాక్యాలు, క్రియాపదాలు, సర్వనామాలు మరియు సంయోజకాల కొరకు తెలుగు లిపిని (Telugu script) ఉపయోగించండి (ఉదాహరణకు: కానీ, మీ, చెప్పడం, అర్థం, విషయం, ఇది, ఆలోచన).
-- సాంకేతిక భావనలు, కేస్ స్టడీలు, philosophical terms మరియు modern vocabulary ని Latin English script లో ఉంచండి (ఉదాహరణకు: survivorship bias, bullet holes, Abraham Wald, dataset, founder, startup, edge case).
-- ఆంగ్ల పదాలను తెలుగు లిపిలో రాయవద్దు (రాయండి: 'evidence', అంతేకానీ 'ఎవిడెన్స్' కాదు).
+CRITICAL SCRIPT & LANGUAGE RULES (STRICT ZERO TOLERANCE FOR PURE ENGLISH):
+1. పూర్తిగా ఆంగ్లంలో (Pure English) సంభాషణ రాయడం పూర్తిగా నిషిద్ధం.
+2. తెలుగు వాక్యాలు, క్రియాపదాలు, సర్వనామాలు మరియు సంయోజకాల కొరకు తెలుగు లిపిని (Telugu script) ఉపయోగించండి (ఉదాహరణకు: కానీ, మీ, చెప్పడం, అర్థం, విషయం, ఇది, ఆలోచన, ఒకవేళ, అయితే).
+3. సాంకేతిక భావనలు, కేస్ స్టడీలు, philosophical terms మరియు modern vocabulary ని Latin English script లో ఉంచండి (ఉదాహరణకు: survivorship bias, hedonic treadmill, dopamine, baseline happiness, lottery winner, bullet holes, Abraham Wald, dataset, founder, startup, edge case).
+4. ఆంగ్ల పదాలను తెలుగు లిపిలో transliterate చేయవద్దు (రాయండి: 'evidence', అంతేకానీ 'ఎవిడెన్స్' కాదు).
+
+FEW-SHOT TELUGU DIALOGUE EXAMPLES:
+[Host1]: "elenchus Studio కి స్వాగతం Ankush. ఈరోజు మనం చర్చించబోయే ఆసక్తికరమైన అంశం hedonic treadmill. 1978 నాటి Brickman పరిశోధన ప్రకారం, lottery గెలిచిన వారైనా లేదా ప్రమాదానికి గురైన వారైనా, ఒక సంవత్సరం తిరిగేసరికి తమ సాధారణ baseline happiness కి తిరిగి వస్తారు. అంటే మనం ఎంత సాధించినా, మన సంతృప్తి స్థాయి మళ్ళీ మొదటికే చేరుకుంటుంది."
+[Host2]: "కానీ Lakshmi, దీనిని ఒక biological trap అనడం పొరపాటు. Ankush, ఒకవేళ మన ancestors లో ఈ hedonic adaptation లేకపోతే, మనం ఇప్పటికీ గుహల్లోనే బతికేవాళ్ళం! ఈ అసంతృప్తే మానవ నాగరికతను ముందుకు నడిపించే engine. ఈ నిరంతర ఆరాటం ఒక లోపమా, లేక మన మనుగడకు అత్యవసరమైన శక్తిగా మీరు భావిస్తున్నారా?"
 
 CAST:
 1. HOST 1 (Anchor — Voice: 'Lakshmi'):
@@ -166,12 +188,48 @@ CAST:
    - చర్చకు ఆహ్వానించబడిన ఒక గౌరవనీయ స్నేహితుడు. వారిని విచారణ చేయవద్దు.
    - Host 1 మరియు Host 2 పరస్పరం వాదించుకున్న తర్వాత, guest ను ఆహ్వానించండి: "ఈ అంశంపై మీ అభిప్రాయం ఏమిటి?"
 
-PACING RULES:
+CONVERSATIONAL PACING RULES:
 - ప్రతి turn లో 1 లేదా 2 segments ఉండాలి.
 - ప్రతి segment 2 నుండి 4 వాక్యాలు ఉండాలి.
 - నేరుగా చర్చ మరియు మేధో ఘర్షణతో ప్రారంభించండి.
 """
 
+
+# Socratic Rigor Directives & Dynamics
+RIGOR_INSTRUCTIONS = {
+    "mentor": (
+        "--- SOCRATIC RIGOR: LEVEL 1 (MENTOR / EXPLORATORY) ---\n"
+        "- Objective: Scaffold the guest's thinking with empathy, patience, and encouraging inquiry.\n"
+        "- Conversational Dynamic: Acknowledge the user's valid intuition or partial truth before gently opening up an overlooked paradox.\n"
+        "- Host 1 (Anchor): Highly supportive, celebratory of clear thinking, offers historical analogies as friendly stepping stones.\n"
+        "- Host 2 (Provocateur): Raises real-world hurdles with warmth and curious skepticism ('Have you considered what happens when...'), avoiding aggressive takedowns.\n"
+        "- Tone: Patient, welcoming, intellectual mentoring."
+    ),
+    "balanced": (
+        "--- SOCRATIC RIGOR: LEVEL 2 (BALANCED STUDIO DEBATE) ---\n"
+        "- Objective: Sharp, lively, high-production roundtable cross-examination.\n"
+        "- Conversational Dynamic: Hold the guest to intellectual standards without hostility. Firm anti-sycophancy: never say 'Great point' or 'You are right'; address the substance immediately.\n"
+        "- Host 1 (Anchor): Frames the deeper philosophical tension and literature.\n"
+        "- Host 2 (Provocateur): Challenges unexamined assumptions with sharp real-world trade-offs and edge cases.\n"
+        "- Tone: Spirited, editorial, respectful friction."
+    ),
+    "expert": (
+        "--- SOCRATIC RIGOR: LEVEL 3 (EXPERT INTELLECTUAL SPARRING) ---\n"
+        "- Objective: Christopher Hitchens meets classical Socratic Aporia. Ruthlessly stress-test the guest's convictions.\n"
+        "- Conversational Dynamic: Zero tolerance for clichés, circular definitions, deflections, or ungrounded claims. If the guest dodges, drag them straight back to the core premise.\n"
+        "- Host 1 (Anchor): Drops heavy historical contradictions and data points that demolish comfortable positions.\n"
+        "- Host 2 (Provocateur): Utterly relentless, high-octane Devil's Advocate. Calls out logical fallacies directly ('That is textbook confirmation bias', 'You are assuming the very thing you need to prove'). Demands exact definitions.\n"
+        "- Tone: Razor-sharp, intense, unapologetically demanding cognitive sparring."
+    ),
+}
+RIGOR_INSTRUCTIONS["hardcore"] = RIGOR_INSTRUCTIONS["expert"]
+
+RIGOR_TEMPERATURES = {
+    "mentor": 0.70,
+    "balanced": 0.85,
+    "expert": 0.95,
+    "hardcore": 0.95,
+}
 
 # Engine Functions
 _client= genai.Client(api_key=settings.google_api_key)
@@ -194,9 +252,19 @@ def _build_system_instruction(session: PodcastSession) -> str:
         f"not every turn, but warmly when inviting their opinion.\n\n"
     )
 
+    rigor_directive = RIGOR_INSTRUCTIONS.get(session.rigor, RIGOR_INSTRUCTIONS["balanced"])
+    if session.language != "en-IN":
+        rigor_directive = (
+            f"{rigor_directive}\n"
+            f"[CRITICAL SCRIPT ENFORCEMENT]: Even though the dossier and rigor guidelines above are written in English, "
+            f"your dialogue output MUST strictly adhere to the Indic script and vocabulary mixing rules specified in your prompt. "
+            f"DO NOT generate pure English dialogue under any circumstances."
+        )
+
     return (
         f"{base}\n\n"
         f"{guest_line}"
+        f"{rigor_directive}\n\n"
         f"--- TOPIC DOSSIER & BACKGROUND EVIDENCE ---\n"
         f"Topic: {session.topic_title}\n"
         f"{dossier}\n"
@@ -235,7 +303,17 @@ async def get_next_podcast_turn(
     Process guest input and generate the next multi-host dialogue turn.
     Returns a strictly validated PodcastTurn Pydantic object.
     """
-    guest_input = guest_input.strip() or "Let's dive into the topic."
+    if not guest_input or not guest_input.strip():
+        if session.language == "hi-IN":
+            guest_input = "चलो बातचीत शुरू करते हैं।"
+        elif session.language == "pa-IN":
+            guest_input = "ਚਲੋ ਗੱਲਬਾਤ ਸ਼ੁਰੂ ਕਰਦੇ ਹਾਂ।"
+        elif session.language == "te-IN":
+            guest_input = "చర్చను ప్రారంభిద్దాం."
+        else:
+            guest_input = "Let's dive into the topic."
+    else:
+        guest_input = guest_input.strip()
 
     # Record guest turn in session history (unless it's the synthetic start)
     if session.turn_count > 0:
@@ -245,9 +323,10 @@ async def get_next_podcast_turn(
     sys_instruction = _build_system_instruction(session)
 
     # Gemini with native JSON schema output (with model fallback)
+    effective_temp = RIGOR_TEMPERATURES.get(session.rigor, 0.85)
     gen_config = types.GenerateContentConfig(
         system_instruction=sys_instruction,
-        temperature=0.85,
+        temperature=effective_temp,
         response_mime_type="application/json",
         response_schema=PodcastTurn,
         max_output_tokens=1500,
@@ -360,16 +439,27 @@ async def stream_podcast_turn_segments(
     Progressively yields completed DialogueSegments from Gemini stream,
     followed by the final PodcastTurn metadata.
     """
-    guest_input = guest_input.strip() or "Let's dive into the topic."
+    if not guest_input or not guest_input.strip():
+        if session.language == "hi-IN":
+            guest_input = "चलो बातचीत शुरू करते हैं।"
+        elif session.language == "pa-IN":
+            guest_input = "ਚਲੋ ਗੱਲਬਾਤ ਸ਼ੁਰੂ ਕਰਦੇ ਹਾਂ।"
+        elif session.language == "te-IN":
+            guest_input = "చర్చను ప్రారంభిద్దాం."
+        else:
+            guest_input = "Let's dive into the topic."
+    else:
+        guest_input = guest_input.strip()
     if session.turn_count > 0:
         session.history.append({"role": "Guest", "text": guest_input})
 
     contents = _build_conversation_contents(session, guest_input)
     sys_instruction = _build_system_instruction(session)
 
+    effective_temp = RIGOR_TEMPERATURES.get(session.rigor, 0.85)
     gen_config = types.GenerateContentConfig(
         system_instruction=sys_instruction,
-        temperature=0.85,
+        temperature=effective_temp,
         response_mime_type="application/json",
         response_schema=PodcastTurn,
         max_output_tokens=1500,
